@@ -30,6 +30,9 @@ import dns.resolver
 class LdapException(Exception):
     pass
 
+class NoSuchObjectException(LdapException):
+    pass
+
 class AlreadyExistsException(LdapException):
     pass
 
@@ -99,23 +102,26 @@ class ActiveDirectoryConnection(object):
             for entry in self.__connection.entries]
 
     def find_computer(self, search_base_dn):
-        self.__connection.search(
-            search_filter="(objectClass=computer)",
-            search_base=search_base_dn,
-            attributes=[
-                "distinguishedName",
-                "name",
-                ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID,
-                ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE,
-                ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME])
+        try:
+            self.__connection.search(
+                search_filter="(objectClass=computer)",
+                search_base=search_base_dn,
+                attributes=[
+                    "distinguishedName",
+                    "name",
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID,
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE,
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME])
 
-        return [Computer(
-                entry.entry_dn,
-                self.__to_scalar(entry["name"]),
-                self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID]),
-                self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE]),
-                self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME]))
-            for entry in self.__connection.entries]
+            return [Computer(
+                    entry.entry_dn,
+                    self.__to_scalar(entry["name"]),
+                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID]),
+                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE]),
+                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME]))
+                for entry in self.__connection.entries]
+        except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
+            raise NoSuchObjectException(e)
 
     def add_computer(self, ou, computer_name, upn, project_id, zone, instance_name):
         WORKSTATION_TRUST_ACCOUNT = 0x1000
@@ -154,6 +160,16 @@ class ActiveDirectoryConnection(object):
                 "CN=%s,%s" % (computer_name, ou),
                 {
                     "userPrincipalName": [(ldap3.MODIFY_DELETE, [])]
+                })
+        except ldap3.core.exceptions.LDAPAttributeOrValueExistsResult as e:
+            raise AlreadyExistsException(e)
+
+    def set_computer_upn(self, ou, computer_name, upn):
+        try:
+            self.__connection.modify(
+                "CN=%s,%s" % (computer_name, ou),
+                {
+                    "userPrincipalName": [(ldap3.MODIFY_REPLACE, [upn])]
                 })
         except ldap3.core.exceptions.LDAPAttributeOrValueExistsResult as e:
             raise AlreadyExistsException(e)
@@ -209,7 +225,7 @@ class Computer(NamedObject):
         self.__project_id = project_id
         self.__zone = zone
         self.__instance_name = instance_name
-
+    
     def get_instance_name(self):
         return self.__instance_name
 
