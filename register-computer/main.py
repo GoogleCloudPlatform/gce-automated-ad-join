@@ -102,46 +102,61 @@ def __connect_to_activedirectory():
 def __generate_password(length=40):
     return str(uuid.uuid4()) + "-" + str(uuid.uuid4())
 
-def __shorten_computer_name(computer_name, gce_instance):    
-    # Look for MIG related metadata
-    has_metadata = ("metadata" in gce_instance.keys() and
-                    "items" in gce_instance["metadata"])
-    if has_metadata:
-      metadata_created_by = next((x for x in gce_instance["metadata"]["items"] if x["key"] == "created-by"), None)
+def __get_managed_instance_group_for_instance(gce_instance):
+    if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
+        metadata_created_by = next((x for x in gce_instance["metadata"]["items"] if x["key"] == "created-by"), None)
 
-    is_mig = (has_metadata and 
-              metadata_created_by and              
-              "instanceGroupManagers" in metadata_created_by["value"])
-    
-    if not is_mig:
-      return computer_name
-    
-    if ("labels" in gce_instance.keys() and
-        'goog-gke-node' in gce_instance["labels"]):
-      # Generate GKE node naming convention k-XXXXXXXX-YYYY 
-      # (k - Kubernetes node
-      #  X - unique value given to the cluster's node pool
-      #  Y - unique value given to each instance by the MIG
-      instance_name_parts = computer_name.rsplit('-',2)
-      node_pool_hash = instance_name_parts[-2]
-      unique_id = instance_name_parts[-1]
-      new_computer_name = 'k-' + node_pool_hash + '-' + unique_id
-    else: 
-      # Generate MIG naming convention XXXXX-YYYY-ZZZZ 
-      # (X - partial MIG name
-      #  Y - hashed value of MIG name
-      #  Z - unique value given to each instance by the MIG
-      instance_name_parts = computer_name.rsplit('-',1)
-      mig_name = instance_name_parts[-2]
-      unique_id = instance_name_parts[-1]
-      # Create a hash that produces 4 hex characters
-      hasher = blake2b(digest_size=2)
-      hasher.update(mig_name.encode("utf-8"))
-      mig_name_hash = hasher.hexdigest()
-      # Get first 5 characters from MIG's name
-      mig_name_prefix = mig_name[:5]
-      new_computer_name = mig_name_prefix + '-' + mig_name_hash + '-' + unique_id
-    return new_computer_name
+    if (metadata_created_by and "instanceGroupManagers" in metadata_created_by["value"]):
+        # https://cloud.google.com/compute/docs/instance-groups/getting-info-about-migs#checking_if_a_vm_instance_is_part_of_a_mig
+        # The "created-by" metadata value is in the format
+        # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
+        # Return only the last part (the MIG name) from the value
+        return (metadata_created_by["value"]).rsplit('/',1)[-1]
+    else:
+        return
+
+def __is_gke_nodepool_member(gce_instance):
+    return ("labels" in gce_instance.keys() and 'goog-gke-node' in gce_instance["labels"])
+
+def __shorten_computer_name(computer_name, gce_instance):
+    # We can shorten the name of instances if they are part of a MIG
+    if __get_managed_instance_group_for_instance(gce_instance):
+        if __is_gke_nodepool_member(gce_instance):
+            # For MIGs created by GKE, we will use a special naming convention
+            # Generate GKE node naming convention k-XXXXXXXX-YYYY 
+            # k - Kubernetes node
+            # X - unique value given to the cluster's node pool
+            # Y - unique value given to each instance by the MIG
+            instance_name_parts = computer_name.rsplit('-',2)
+            node_pool_hash = instance_name_parts[-2]
+            unique_id = instance_name_parts[-1]
+            new_computer_name = ("k-%s-%s" % (node_pool_hash, unique_id))
+        else: 
+            # Generate MIG naming convention XXXXX-YYYY-ZZZZ
+            # X - partial MIG name
+            # Y - hashed value of MIG name
+            # Z - unique value given to each instance by the MIG
+            instance_name_parts = computer_name.rsplit('-', 1)
+            mig_name = instance_name_parts[-2]
+            unique_id = instance_name_parts[-1]
+            # Create a hash that produces 4 hex characters
+            hasher = blake2b(digest_size=2)
+            hasher.update(mig_name.encode("utf-8"))
+            mig_name_hash = hasher.hexdigest()
+            # Get first 5 characters from MIG's name
+            mig_name_prefix = mig_name[:5]
+            new_computer_name = ("%s-%s-%s" % (mig_name_prefix, mig_name_hash, unique_id))
+        return new_computer_name
+    else:        
+        # Not MIG - create a name using the convention XXXXXXXXXX-YYYY
+        # X - partial instance name
+        # Y - hashed value of instance name
+        hasher = blake2b(digest_size=3)
+        hasher.update(computer_name.encode("utf-8"))
+        instance_name_hash = hasher.hexdigest()
+        instance_name_prefix = computer_name[:10]
+        new_computer_name = ("%s-%s" % (instance_name_prefix, instance_name_hash))
+        return new_computer_name
 
 #------------------------------------------------------------------------------
 # HTTP endpoints.
@@ -256,10 +271,7 @@ def __register_computer(request):
     if len(computer_name) > MAX_NETBIOS_COMPUTER_NAME_LENGTH:
         # Try to shorten the computer name
         computer_name = __shorten_computer_name(computer_name, gce_instance)
-        if computer_name != original_computer_name:
-          logging.info("Computer name was shortened from %s to %s" % (original_computer_name, computer_name))
-        else:
-          logging.warning("Computer name %s exceeds maximum length for NetBIOS computer names, joining is likely going to fail" % (computer_name))
+        logging.info("Computer name was shortened from %s to %s" % (original_computer_name, computer_name))
 
     # The request is now properly authorized, so we are all set to create
     # a computer account in the domain.
@@ -290,18 +302,26 @@ def __register_computer(request):
                 computer_account = computer_accounts[0]
                 # Validate this is the same project, instance name, and zone
                 is_same_computer = (computer_account.get_instance_name() == auth_info.get_instance_name() 
-                    and computer_account.get_project_id() == auth_info.get_project_id()
-                    and computer_account.get_zone() == auth_info.get_zone())
+                    and computer_account.get_project_id() == auth_info.get_project_id())
 
                 if is_same_computer:
-                    # Same computer, so just adding a temporary UPN to the computer
+                    # Account found in AD is in the same project and has 
+                    # the same name as the given instance so we can reuse it
+                    logging.info("Account '%s' already exists, reusing" % computer_name)
+                    # We need to add a temporary UPN to the computer
                     # so that we can reset its password via Kerberos
                     ad_connection.set_computer_upn(computer_ou, computer_name, computer_upn)
-                    logging.info("Account '%s' already exists, reusing" % computer_name)
+
+                    if (computer_account.get_zone() != auth_info.get_zone()):
+                        # The instance we have was created in a different zone
+                        # than then AD account. We need to update the zone attribute.
+                        logging.info("Account '%s' is listed in a different zone (%s). Updating to zone %s" 
+                            % (computer_name, computer_account.get_zone(), auth_info.get_zone()))
+                        ad_connection.set_computer_zone(computer_ou, computer_name, auth_info.get_zone())
                 else:
                     logging.error("Account '%s' already exists in the project, but has different attributes" % (computer_name))
                     flask.abort(HTTP_CONFLICT)
-            except ad.domain.NoSuchObjectException as e:                
+            except ad.domain.NoSuchObjectException as e:
                 logging.error("Account '%s' already exists, but cannot be found in project '%s'. It probably belongs to a different project." % 
                     (computer_name, auth_info.get_project_id()))
                 flask.abort(HTTP_CONFLICT)

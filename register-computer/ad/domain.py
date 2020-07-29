@@ -174,6 +174,16 @@ class ActiveDirectoryConnection(object):
         except ldap3.core.exceptions.LDAPAttributeOrValueExistsResult as e:
             raise AlreadyExistsException(e)
 
+    def set_computer_zone(self, ou, computer_name, zone):
+        try:
+            self.__connection.modify(
+                "CN=%s,%s" % (computer_name, ou),
+                {
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE: [(ldap3.MODIFY_REPLACE, [zone])]
+                })
+        except ldap3.core.exceptions.LDAPAttributeOrValueExistsResult as e:
+            raise AlreadyExistsException(e)
+
     def delete_computer(self, computer_dn):
         self.__connection.delete(computer_dn)
 
