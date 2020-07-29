@@ -145,8 +145,7 @@ def __shorten_computer_name(computer_name, gce_instance):
             mig_name_hash = hasher.hexdigest()
             # Get first 5 characters from MIG's name
             mig_name_prefix = mig_name[:5]
-            new_computer_name = ("%s-%s-%s" % (mig_name_prefix, mig_name_hash, unique_id))
-        return new_computer_name
+            new_computer_name = ("%s-%s-%s" % (mig_name_prefix, mig_name_hash, unique_id))        
     else:        
         # Not MIG - create a name using the convention XXXXXXXXXX-YYYY
         # X - partial instance name
@@ -156,7 +155,7 @@ def __shorten_computer_name(computer_name, gce_instance):
         instance_name_hash = hasher.hexdigest()
         instance_name_prefix = computer_name[:10]
         new_computer_name = ("%s-%s" % (instance_name_prefix, instance_name_hash))
-        return new_computer_name
+    return new_computer_name
 
 #------------------------------------------------------------------------------
 # HTTP endpoints.
