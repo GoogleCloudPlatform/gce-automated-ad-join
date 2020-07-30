@@ -127,7 +127,7 @@ def __shorten_computer_name(computer_name, gce_instance):
             # k - Kubernetes node
             # X - unique value given to the cluster's node pool
             # Y - unique value given to each instance by the MIG
-            instance_name_parts = computer_name.rsplit('-',2)
+            instance_name_parts = computer_name.rsplit('-', 2)
             node_pool_hash = instance_name_parts[-2]
             unique_id = instance_name_parts[-1]
             new_computer_name = ("k-%s-%s" % (node_pool_hash, unique_id))
