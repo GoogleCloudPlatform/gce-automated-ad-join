@@ -111,7 +111,7 @@ def __get_managed_instance_group_for_instance(gce_instance):
         # The "created-by" metadata value is in the format
         # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
         # Return only the last part (the MIG name) from the value
-        return (metadata_created_by["value"]).rsplit('/',1)[-1]
+        return (metadata_created_by["value"]).rsplit('/', 1)[-1]
     else:
         return
 
