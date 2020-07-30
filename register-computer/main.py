@@ -37,12 +37,16 @@ import gcp.project
 import ad.domain
 import kerberos.password
 
+import werkzeug
+
+from hashlib import blake2b
+
 # Silence "file_cache" warnings
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 logging.getLogger().setLevel(logging.INFO)
 
 REQUIRED_SCOPRES = ["https://www.googleapis.com/auth/compute.readonly"]
-MAX_NETBIOS_COMPUTER_NAME_LENTH = 15
+MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 8
 
 #------------------------------------------------------------------------------
@@ -98,6 +102,61 @@ def __connect_to_activedirectory():
 def __generate_password(length=40):
     return str(uuid.uuid4()) + "-" + str(uuid.uuid4())
 
+def __get_managed_instance_group_for_instance(gce_instance):
+    if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
+        metadata_created_by = next((x for x in gce_instance["metadata"]["items"] if x["key"] == "created-by"), None)
+
+    if (metadata_created_by and "instanceGroupManagers" in metadata_created_by["value"]):
+        # https://cloud.google.com/compute/docs/instance-groups/getting-info-about-migs#checking_if_a_vm_instance_is_part_of_a_mig
+        # The "created-by" metadata value is in the format
+        # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
+        # Return only the last part (the MIG name) from the value
+        return (metadata_created_by["value"]).rsplit('/', 1)[-1]
+    else:
+        return
+
+def __is_gke_nodepool_member(gce_instance):
+    return ("labels" in gce_instance.keys() and 'goog-gke-node' in gce_instance["labels"])
+
+def __shorten_computer_name(computer_name, gce_instance):
+    # We can shorten the name of instances if they are part of a MIG
+    if __get_managed_instance_group_for_instance(gce_instance):
+        if __is_gke_nodepool_member(gce_instance):
+            # For MIGs created by GKE, we will use a special naming convention
+            # Generate GKE node naming convention k-XXXXXXXX-YYYY 
+            # k - Kubernetes node
+            # X - unique value given to the cluster's node pool
+            # Y - unique value given to each instance by the MIG
+            instance_name_parts = computer_name.rsplit('-', 2)
+            node_pool_hash = instance_name_parts[-2]
+            unique_id = instance_name_parts[-1]
+            new_computer_name = ("k-%s-%s" % (node_pool_hash, unique_id))
+        else: 
+            # Generate MIG naming convention XXXXX-YYYY-ZZZZ
+            # X - partial MIG name
+            # Y - hashed value of MIG name
+            # Z - unique value given to each instance by the MIG
+            instance_name_parts = computer_name.rsplit('-', 1)
+            mig_name = instance_name_parts[-2]
+            unique_id = instance_name_parts[-1]
+            # Create a hash that produces 4 hex characters
+            hasher = blake2b(digest_size=2)
+            hasher.update(mig_name.encode("utf-8"))
+            mig_name_hash = hasher.hexdigest()
+            # Get first 5 characters from MIG's name
+            mig_name_prefix = mig_name[:5]
+            new_computer_name = ("%s-%s-%s" % (mig_name_prefix, mig_name_hash, unique_id))        
+    else:        
+        # Not MIG - create a name using the convention XXXXXXXXXX-YYYY
+        # X - partial instance name
+        # Y - hashed value of instance name
+        hasher = blake2b(digest_size=3)
+        hasher.update(computer_name.encode("utf-8"))
+        instance_name_hash = hasher.hexdigest()
+        instance_name_prefix = computer_name[:10]
+        new_computer_name = ("%s-%s" % (instance_name_prefix, instance_name_hash))
+    return new_computer_name
+
 #------------------------------------------------------------------------------
 # HTTP endpoints.
 #------------------------------------------------------------------------------
@@ -125,7 +184,7 @@ def __serve_join_script(request):
 def __register_computer(request):
     """
         Create a computer account for the joining computer.
-    """
+    """    
 
     # Only accept requests with an Authorization header.
     headerName = "Authorization"
@@ -172,7 +231,6 @@ def __register_computer(request):
         else:
             # There is an OU. That means the request is fine and we also know which
             # OU to create a computer account in.
-
             computer_ou = matches[0].get_dn()
             logging.info("Found OU '%s' to create computer account in, authorized (1/2)" % computer_ou)
     except Exception as e:
@@ -206,26 +264,66 @@ def __register_computer(request):
     except Exception as e:
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
         return flask.abort(HTTP_ACCESS_DENIED)
+    
+    original_computer_name = computer_name
 
-    if len(computer_name) > MAX_NETBIOS_COMPUTER_NAME_LENTH:
-        logging.warning("Computer name %s exceeds maximum length for NetBIOS computer names, joining is likely going to fail")
+    if len(computer_name) > MAX_NETBIOS_COMPUTER_NAME_LENGTH:
+        # Try to shorten the computer name
+        computer_name = __shorten_computer_name(computer_name, gce_instance)
+        logging.info("Computer name was shortened from %s to %s" % (original_computer_name, computer_name))
 
     # The request is now properly authorized, so we are all set to create
     # a computer account in the domain.
     domain = __read_required_setting("AD_DOMAIN")
+    
     try:
         computer_upn = "%s$@%s" % (computer_name, domain)
 
         # Create computer and add metadata to trace its connection to the
         # GCE VM instance. We also add a temporary UPN to the computer
         # so that we can reset its password via Kerberos.
-        computer_account_dn = ad_connection.add_computer(
-            computer_ou,
-            computer_name,
-            computer_upn,
-            auth_info.get_project_id(),
-            auth_info.get_zone(),
-            auth_info.get_instance_name())
+        try:
+            computer_account_dn = ad_connection.add_computer(
+                computer_ou,
+                computer_name,
+                computer_upn,
+                auth_info.get_project_id(),
+                auth_info.get_zone(),
+                auth_info.get_instance_name())
+        
+        except ad.domain.AlreadyExistsException:
+            # Computer already exists. If this is the same instance and project name
+            # then assume this is a re-imaged VM, and continue
+            computer_account_dn = ("CN=%s,%s" % (computer_name, computer_ou))
+            try:
+                computer_accounts = ad_connection.find_computer(computer_account_dn)
+
+                computer_account = computer_accounts[0]
+                # Validate this is the same project, instance name, and zone
+                is_same_computer = (computer_account.get_instance_name() == auth_info.get_instance_name() 
+                    and computer_account.get_project_id() == auth_info.get_project_id())
+
+                if is_same_computer:
+                    # Account found in AD is in the same project and has 
+                    # the same name as the given instance so we can reuse it
+                    logging.info("Account '%s' already exists, reusing" % computer_name)
+                    # We need to add a temporary UPN to the computer
+                    # so that we can reset its password via Kerberos
+                    ad_connection.set_computer_upn(computer_ou, computer_name, computer_upn)
+
+                    if (computer_account.get_zone() != auth_info.get_zone()):
+                        # The instance we have was created in a different zone
+                        # than then AD account. We need to update the zone attribute.
+                        logging.info("Account '%s' is listed in a different zone (%s). Updating to zone %s" 
+                            % (computer_name, computer_account.get_zone(), auth_info.get_zone()))
+                        ad_connection.set_computer_zone(computer_ou, computer_name, auth_info.get_zone())
+                else:
+                    logging.error("Account '%s' already exists in the project, but has different attributes" % (computer_name))
+                    flask.abort(HTTP_CONFLICT)
+            except ad.domain.NoSuchObjectException as e:
+                logging.error("Account '%s' already exists, but cannot be found in project '%s'. It probably belongs to a different project." % 
+                    (computer_name, auth_info.get_project_id()))
+                flask.abort(HTTP_CONFLICT)
 
         # Assign a random password via Kerberos. Using Kerberos instead of
         # LDAP avoids having to use Secure LDAP.
@@ -249,7 +347,8 @@ def __register_computer(request):
             except kerberos.password.KerberosException as e:
                 if set_password_attempt <= PASSWORD_RESET_RETRIES:
                     # Setting the password might fail, so try again using a new password.
-                    logging.warning("Setting password for '%s' failed (attempt #%d), retrying with different password" % (computer_upn, set_password_attempt))
+                    logging.warning("Setting password for '%s' failed (attempt #%d), retrying with different password" % 
+                        (computer_upn, set_password_attempt))
                     time.sleep(1)
 
                 else:
@@ -260,16 +359,18 @@ def __register_computer(request):
         ad_connection.remove_computer_upn(computer_ou, computer_name)
 
         logging.info("Created computer account '%s'" % (computer_account_dn))
-    except ad.domain.AlreadyExistsException as e:
-        logging.error("Account '%s' already exists" % computer_name)
-        return flask.abort(HTTP_CONFLICT)
+    except werkzeug.exceptions.Conflict as e:
+        # Re-throw HTTP 409 (Conflict) that is used throughout this try/except, 
+        # to avoid it being replaced by the HTTP 500 for general exceptions 
+        raise e
     except Exception as e:
         logging.exception("Creating computer account for '%s' in '%s' failed" %
             (computer_name, computer_ou))
         return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
 
-    # Return credemtials so that the computer can use them to join.
+    # Return credentials so that the computer can use them to join.
     return flask.jsonify(
+        OriginalComputerName=original_computer_name,
         ComputerName=computer_name,
         ComputerPassword=computer_password,
         OrgUnitPath=computer_ou,
@@ -333,7 +434,6 @@ def __cleanup_computers(request):
             # Try to obtain the full list of instances in this project. This might
             # fail if we have lost access to the project.
             instance_names = gcp.project.Project(project_id).get_instance_names(zones)
-
 
             accounts_deleted = 0
             accounts_failed = 0

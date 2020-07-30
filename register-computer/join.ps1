@@ -44,7 +44,15 @@ $JoinInfoRedacted = $JoinInfo.PSObject.copy()
 $JoinInfoRedacted.ComputerPassword = "*"
 $JoinInfoRedacted | Format-List
 
-if ($JoinInfo.ComputerName.Length -gt 15) {
+$NewComputerName = $JoinInfo.ComputerName
+$OriginalComputerName = $JoinInfo.OriginalComputerName
+
+if ($NewComputerName -ne $OriginalComputerName) {
+    Write-Host "Renaming computer from $OriginalComputerName to $NewComputerName"
+    Rename-Computer -ComputerName localhost -NewName $NewComputerName -Force -PassThru -Verbose
+}
+
+if ($NewComputerName.Length -gt 15) {
     Write-Host "WARNING: Computer name exceeds NetBIOS limits - domain join might fail"
 }
 
@@ -70,7 +78,7 @@ do {
             -DomainName $JoinInfo.Domain `
             -Credential $Credentials `
             -OUPath $JoinInfo.OrgUnitPath `
-            -Options UnsecuredJoin,PasswordPass,JoinWithNewName
+            -Options UnsecuredJoin,PasswordPass,JoinWithNewName 
 
         Write-Host "Computer successfully joined to domain"
         break
