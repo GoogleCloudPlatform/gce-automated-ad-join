@@ -27,3 +27,7 @@ __pycache__/
 ksetpwd/ksetpwd
 ksetpwd/ksetpwd.o
 register-computer/kerberos/bin/
+
+*.backup
+.terraform/
+*.tfstate
