@@ -70,8 +70,8 @@ def __read_ad_password():
     else:
         # Decrypt password cipher using the Cloud KMS key provided.
         return google.cloud.kms_v1.KeyManagementServiceClient().decrypt(
-            __read_required_setting("CLOUDKMS_KEY"),
-            base64.b64decode(__read_required_setting("AD_PASSWORD_CIPHER"))).plaintext.decode("utf-8").strip()
+            name=__read_required_setting("CLOUDKMS_KEY"),
+            ciphertext=base64.b64decode(__read_required_setting("AD_PASSWORD_CIPHER"))).plaintext.decode("utf-8").strip()
 
 def __connect_to_activedirectory():
     domain = __read_required_setting("AD_DOMAIN")
