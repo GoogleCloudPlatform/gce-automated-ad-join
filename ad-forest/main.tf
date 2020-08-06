@@ -188,7 +188,7 @@ resource "google_project_iam_member" "dc-dsrm-password" {
 # [START addresses]
 
 resource "google_compute_shared_vpc_service_project" "service1" {
-    count = var.vpchost_project_id ? 1 : 0
+    count = var.vpchost_project_id == null ? 0 : 1
     
     provider        = google-beta
 
