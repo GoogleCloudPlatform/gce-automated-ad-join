@@ -20,18 +20,8 @@
 #
 
 #------------------------------------------------------------------------------
-# Mandatory input variables
-#------------------------------------------------------------------------------
-
-variable "admin_password" {
-    description = "Directory services restore mode password"
-    type = string
-}
-
-#------------------------------------------------------------------------------
 # Optional input variables
 #------------------------------------------------------------------------------
-
 
 variable "vpchost_project_id" {
     description = "Shared VPC Host Project ID"
@@ -109,16 +99,19 @@ locals {
 resource "google_project_service" "compute" {
     project = local.project_id
     service = "compute.googleapis.com"
+    disable_on_destroy = false
 }
 
 resource "google_project_service" "secretmanager" {
     project = local.project_id
     service = "secretmanager.googleapis.com"
+    disable_on_destroy = false
 }
 
 resource "google_project_service" "dns" {
     project = coalesce(var.vpchost_project_id, local.project_id)
     service = "dns.googleapis.com"
+    disable_on_destroy = false
 }
 
 #------------------------------------------------------------------------------
@@ -145,6 +138,11 @@ resource "google_service_account" "dc" {
 #------------------------------------------------------------------------------
 # [START secret]
 
+resource "random_string" "password" {
+    length = 32
+    special = true
+}
+
 resource "google_secret_manager_secret" "dc-dsrm-password" {
     provider    = google-beta
     project      = local.project_id
@@ -165,8 +163,11 @@ resource "google_secret_manager_secret_version" "dc-dsrm-password" {
     depends_on  = [google_project_service.secretmanager]
     
     secret = google_secret_manager_secret.dc-dsrm-password.id
-
-    secret_data = var.admin_password
+    secret_data = random_string.password.result
+    
+    lifecycle {
+        ignore_changes = [secret_data]
+    }
 }
 
 resource "google_project_iam_member" "dc-dsrm-password" {
