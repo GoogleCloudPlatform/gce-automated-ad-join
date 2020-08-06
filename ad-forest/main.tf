@@ -36,6 +36,7 @@ variable "admin_password" {
 variable "vpchost_project_id" {
     description = "Shared VPC Host Project ID"
     type = string
+    default = null
 }
 
 variable "region" {
