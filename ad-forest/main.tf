@@ -28,11 +28,6 @@ variable "admin_password" {
     type = string
 }
 
-variable "project_id" {
-    description = "Project ID"
-    type = string
-}
-
 #------------------------------------------------------------------------------
 # Optional input variables
 #------------------------------------------------------------------------------
@@ -96,7 +91,7 @@ variable "instance_prefix" {
 #------------------------------------------------------------------------------
 
 provider "google-beta" {
-    project          = var.project_id
+    project          = local.project_id
     region           = var.region
 }
 
@@ -111,17 +106,17 @@ locals {
 #------------------------------------------------------------------------------
 
 resource "google_project_service" "compute" {
-    project = var.project_id
+    project = local.project_id
     service = "compute.googleapis.com"
 }
 
 resource "google_project_service" "secretmanager" {
-    project = var.project_id
+    project = local.project_id
     service = "secretmanager.googleapis.com"
 }
 
 resource "google_project_service" "dns" {
-    project = coalesce(var.vpchost_project_id, var.project_id)
+    project = coalesce(var.vpchost_project_id, local.project_id)
     service = "dns.googleapis.com"
 }
 
@@ -131,7 +126,7 @@ resource "google_project_service" "dns" {
 # [START serviceaccount]
 
 resource "google_service_account" "dc" {
-    project      = var.project_id
+    project      = local.project_id
     account_id   = var.serviceaccount_name
     display_name = "AD domain controller"
 }
@@ -151,7 +146,7 @@ resource "google_service_account" "dc" {
 
 resource "google_secret_manager_secret" "dc-dsrm-password" {
     provider    = google-beta
-    project      = var.project_id
+    project      = local.project_id
     depends_on  = [google_project_service.secretmanager]
 
     secret_id = "dc-dsrm-password"
@@ -175,7 +170,7 @@ resource "google_secret_manager_secret_version" "dc-dsrm-password" {
 
 resource "google_project_iam_member" "dc-dsrm-password" {
     provider = google-beta
-    project      = var.project_id
+    project      = local.project_id
 
     role = "roles/secretmanager.secretAccessor"
     member = "serviceAccount:${google_service_account.dc.email}"
@@ -198,12 +193,12 @@ resource "google_project_iam_member" "dc-dsrm-password" {
 data "google_compute_subnetwork" "dc_subnet" {
     name   = var.subnet
     region = var.region
-    project = coalesce(var.vpchost_project_id, var.project_id)
+    project = coalesce(var.vpchost_project_id, local.project_id)
 }
 
 resource "google_compute_address" "dc" {
     provider = google-beta
-    project = var.project_id
+    project = local.project_id
     depends_on  = [google_project_service.compute]
     
     count        = local.dc_count
@@ -225,7 +220,7 @@ resource "google_compute_address" "dc" {
 
 resource "google_dns_managed_zone" "dns_zone" {
     provider     = google-beta
-    project      = coalesce(var.vpchost_project_id, var.project_id)
+    project      = coalesce(var.vpchost_project_id, local.project_id)
     depends_on  = [google_project_service.dns]
     
     name         = replace(var.dns_domain, ".", "-")
@@ -256,7 +251,7 @@ resource "google_dns_managed_zone" "dns_zone" {
 
 resource "google_compute_instance" "dc" {
     provider     = google-beta
-    project      = var.project_id
+    project      = local.project_id
     depends_on   = [google_project_service.compute]
     
     count        = local.dc_count
