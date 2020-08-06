@@ -138,11 +138,6 @@ resource "google_service_account" "dc" {
 #------------------------------------------------------------------------------
 # [START secret]
 
-resource "random_string" "password" {
-    length = 32
-    special = true
-}
-
 resource "google_secret_manager_secret" "dc-dsrm-password" {
     provider    = google-beta
     project      = local.project_id
@@ -163,7 +158,7 @@ resource "google_secret_manager_secret_version" "dc-dsrm-password" {
     depends_on  = [google_project_service.secretmanager]
     
     secret = google_secret_manager_secret.dc-dsrm-password.id
-    secret_data = random_string.password.result
+    secret_data = uuid()
     
     lifecycle {
         ignore_changes = [secret_data]
@@ -192,6 +187,15 @@ resource "google_project_iam_member" "dc-dsrm-password" {
 #------------------------------------------------------------------------------
 # [START addresses]
 
+resource "google_compute_shared_vpc_service_project" "service1" {
+    count = var.vpchost_project_id ? 1 : 0
+    
+    provider        = google-beta
+
+    host_project    = var.vpchost_project_id
+    service_project = local.project_id
+}
+
 data "google_compute_subnetwork" "dc_subnet" {
     name   = var.subnet
     region = var.region
@@ -199,8 +203,8 @@ data "google_compute_subnetwork" "dc_subnet" {
 }
 
 resource "google_compute_address" "dc" {
-    provider = google-beta
-    project = local.project_id
+    provider    = google-beta
+    project     = local.project_id
     depends_on  = [google_project_service.compute]
     
     count        = local.dc_count
