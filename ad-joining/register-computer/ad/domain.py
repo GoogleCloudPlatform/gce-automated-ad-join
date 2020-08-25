@@ -43,6 +43,8 @@ class ActiveDirectoryConnection(object):
     LDAP_ATTRIBUTE_PROJECT_ID    = "msDS-cloudExtensionAttribute1"
     LDAP_ATTRIBUTE_ZONE          = "msDS-cloudExtensionAttribute2"
     LDAP_ATTRIBUTE_INSTANCE_NAME = "msDS-cloudExtensionAttribute3"
+    ACTIVE_DIRECTORY_GROUP_TYPE_DOMAIN_LOCAL = 4
+    ACTIVE_DIRECTORY_GROUP_TYPE_SECURITY = -2147483648
 
     def __init__(self, domain_controller, connection, base_dn):
         assert isinstance(connection, ldap3.Connection)
@@ -242,8 +244,9 @@ class ActiveDirectoryConnection(object):
                 ],
                 {
                     # Mandatory attributes for a computer object.
+                    "groupType": self.ACTIVE_DIRECTORY_GROUP_TYPE_DOMAIN_LOCAL + self.ACTIVE_DIRECTORY_GROUP_TYPE_SECURITY,
                     "objectClass": "group",
-                    "name": group_name,                    
+                    "name": group_name,
                     "description" : "Group for computers of MIG '%s'" % (group_name)
                 })
             return dn
