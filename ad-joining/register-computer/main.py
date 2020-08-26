@@ -86,7 +86,7 @@ def __connect_to_activedirectory():
 
     # If we used SRV records to look up domain controllers, then it is possible that
     # the highest-priority one is offline. So loop over the records to fine one
-    # that wprks.
+    # that works.
     for dc in domain_controllers:
         try:
             return ad.domain.ActiveDirectoryConnection.connect(
@@ -185,7 +185,7 @@ def __register_computer(request):
     """
         Create a computer account for the joining computer.
     """    
-
+   
     # Only accept requests with an Authorization header.
     headerName = "Authorization"
     if not headerName in request.headers:
@@ -290,7 +290,9 @@ def __register_computer(request):
                 auth_info.get_project_id(),
                 auth_info.get_zone(),
                 auth_info.get_instance_name())
-        
+            
+            new_computer_account = True
+
         except ad.domain.AlreadyExistsException:
             # Computer already exists. If this is the same instance and project name
             # then assume this is a re-imaged VM, and continue
@@ -317,6 +319,8 @@ def __register_computer(request):
                         logging.info("Account '%s' is listed in a different zone (%s). Updating to zone %s" 
                             % (computer_name, computer_account.get_zone(), auth_info.get_zone()))
                         ad_connection.set_computer_zone(computer_ou, computer_name, auth_info.get_zone())
+                    
+                    new_computer_account = False
                 else:
                     logging.error("Account '%s' already exists in the project, but has different attributes" % (computer_name))
                     flask.abort(HTTP_CONFLICT)
@@ -324,6 +328,46 @@ def __register_computer(request):
                 logging.error("Account '%s' already exists, but cannot be found in project '%s'. It probably belongs to a different project." % 
                     (computer_name, auth_info.get_project_id()))
                 flask.abort(HTTP_CONFLICT)
+
+        # Check if the instance is part of a Managed Instance Group (MIG)
+        mig_name = __get_managed_instance_group_for_instance(gce_instance)
+
+        # New instances of MIGs are added to AD groups named after the MIGs.
+        # Having an AD group with the MIG's computers is useful for managing
+        # Access control in the domain
+        if new_computer_account and mig_name:            
+            # Add the computer to an AD group containing all the MIG's computers
+            # This is only relevant to newly added computers
+            # as previously added computers were already added to the group
+            logging.info("Instance '%s' is part of Managed Instance Group '%s'. Account will be added to a matching group" 
+                % (auth_info.get_instance_name(), mig_name))
+
+            # Find if the MIG already has an AD group
+            mig_ad_group = ad_connection.get_group(mig_name, computer_ou)
+
+            if len(mig_ad_group) == 0:
+                try:
+                    # Group does not exists, create it.
+                    logging.info("AD Group '%s' not found. Attempting to create it" % (mig_name))
+                    ad_connection.add_group(computer_ou, mig_name)
+                except ad.domain.AlreadyExistsException:
+                    # Two options why group already exists:
+                    # 1. Group was just created by a parallel process adding another computer from the same MIG
+                    # 2. Group by this name already exists in a different project
+                    mig_ad_group = ad_connection.get_group(mig_name, computer_ou)
+                    if (mig_ad_group) == 0:
+                        logging.error("Failed adding AD Group for MIG '%s' in project '%s'. There is probably a MIG by this name in another OU" 
+                            % (mig_name, auth_info.get_project_id()))
+                        flask.abort(HTTP_CONFLICT)
+                    else: 
+                        # Group added in the same project, safe to proceed
+                        logging.info("AD Group '%s' found while creating. Assuming it was added by another computer joining in parallel" % (mig_name))
+            else:
+                logging.info("AD Group '%s' found. Adding computer '%s' to the group"
+                    %(mig_name, auth_info.get_instance_name()))
+
+            # Add the computer account to group
+            ad_connection.add_member_to_group(computer_ou, mig_name, computer_account_dn)
 
         # Assign a random password via Kerberos. Using Kerberos instead of
         # LDAP avoids having to use Secure LDAP.

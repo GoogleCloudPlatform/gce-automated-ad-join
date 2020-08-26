@@ -43,6 +43,8 @@ class ActiveDirectoryConnection(object):
     LDAP_ATTRIBUTE_PROJECT_ID    = "msDS-cloudExtensionAttribute1"
     LDAP_ATTRIBUTE_ZONE          = "msDS-cloudExtensionAttribute2"
     LDAP_ATTRIBUTE_INSTANCE_NAME = "msDS-cloudExtensionAttribute3"
+    ACTIVE_DIRECTORY_GROUP_TYPE_DOMAIN_LOCAL = 4
+    ACTIVE_DIRECTORY_GROUP_TYPE_SECURITY = -2147483648
 
     def __init__(self, domain_controller, connection, base_dn):
         assert isinstance(connection, ldap3.Connection)
@@ -62,7 +64,8 @@ class ActiveDirectoryConnection(object):
         if len(records) == 0:
             raise DomainControllerLookupException("No SRV records found for %s" % domain_name)
 
-        records_sorted = sorted(records, key=lambda r: (-r.priority, r.weight))
+        records_sorted = sorted(records, key=lambda r: (-r.priority, r.weight, r.target))
+        logging.info(records_sorted)
         return [str(record.target) for record in records_sorted]
 
     @staticmethod
@@ -212,6 +215,54 @@ class ActiveDirectoryConnection(object):
         else:
             return self.__to_scalar(self.__connection.entries[0]["userPrincipalName"])
 
+    def get_group(self, group_name, search_base_dn):
+        try:
+            self.__connection.search(
+                search_filter="(&(objectClass=group)(cn=%s))" % group_name,
+                search_base=search_base_dn,
+                attributes=[
+                    "distinguishedName",
+                    "name",
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID])
+
+            return [Group(
+                    entry.entry_dn,
+                    self.__to_scalar(entry["name"]),                    
+                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID]))
+                for entry in self.__connection.entries]
+        except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
+            raise NoSuchObjectException(e)
+
+    def add_group(self, ou, group_name):
+        try:           
+            dn = "CN=%s,%s" % (group_name, ou)
+            self.__connection.add(
+                dn,
+                [
+                "group",
+                "top"
+                ],
+                {
+                    # Mandatory attributes for a computer object.
+                    "groupType": self.ACTIVE_DIRECTORY_GROUP_TYPE_DOMAIN_LOCAL + self.ACTIVE_DIRECTORY_GROUP_TYPE_SECURITY,
+                    "objectClass": "group",
+                    "name": group_name,
+                    "description" : "Group for computers of MIG '%s'" % (group_name)
+                })
+            return dn
+        except ldap3.core.exceptions.LDAPEntryAlreadyExistsResult as e:
+            raise AlreadyExistsException(e)
+    
+    def add_member_to_group(self, ou, group_name, computer_dn):
+        try:
+            self.__connection.modify(
+                "CN=%s,%s" % (group_name, ou),
+                {
+                    'member': [(ldap3.MODIFY_ADD, [computer_dn])]
+                })
+        except ldap3.core.exceptions.LDAPAttributeOrValueExistsResult as e:
+            raise AlreadyExistsException(e)
+
     def get_user(self):
         return self.__connection.user
 
@@ -242,5 +293,13 @@ class Computer(NamedObject):
     def get_zone(self):
         return self.__zone
 
+    def get_project_id(self):
+        return self.__project_id
+
+class Group(NamedObject):
+    def __init__(self, dn, name, project_id):
+        super(Group, self).__init__(dn, name)
+        self.__project_id = project_id
+    
     def get_project_id(self):
         return self.__project_id
