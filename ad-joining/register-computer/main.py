@@ -45,7 +45,6 @@ from hashlib import blake2b
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 logging.getLogger().setLevel(logging.INFO)
 
-REQUIRED_SCOPRES = ["https://www.googleapis.com/auth/compute.readonly"]
 MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 8
 
