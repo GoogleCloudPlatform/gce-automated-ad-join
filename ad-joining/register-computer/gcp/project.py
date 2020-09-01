@@ -58,3 +58,35 @@ class Project(object):
                     break
 
         return names
+
+    def get_managed_instance_group_names(self, zones, regions):
+        page_token = None
+        names = []
+
+        # Get both zonal and regional managed instance groups
+        # as each has its own API
+        for zone in zones:
+            while True:
+                result = self.__gce_client.instanceGroupManagers().list(
+                    project=self.__project_id,
+                    zone=zone,
+                    pageToken=page_token).execute()
+                if "items" in result:
+                    names += [item["name"] for item in result["items"]]
+
+                if not page_token:
+                    break
+
+        for region in regions:
+            while True:
+                result = self.__gce_client.regionInstanceGroupManagers().list(
+                    project=self.__project_id,
+                    region=region,
+                    pageToken=page_token).execute()
+                if "items" in result:
+                    names += [item["name"] for item in result["items"]]
+
+                if not page_token:
+                    break
+
+        return names
