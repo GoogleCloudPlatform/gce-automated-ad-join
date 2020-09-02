@@ -1,6 +1,6 @@
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/register-computer:$SHORT_SHA', './ad-joining']
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/register-computer:$SHORT_SHA', '-t', 'gcr.io/$PROJECT_ID/register-computer:latest', './ad-joining']
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'gcr.io/$PROJECT_ID/register-computer:latest']
 images: ['gcr.io/$PROJECT_ID/register-computer:$SHORT_SHA']
