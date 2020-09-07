@@ -8,6 +8,9 @@ ADD /register-computer /register-computer
 RUN groupadd -r runner && \
     useradd -rm -g runner runner && \
     mkdir -p /register-computer/kerberos/bin && \
+    apt-get update && \
+    apt-get install -y libkrb5-3 && \
+    rm -rf /var/lib/apt/lists/* && \
     pip3 install -r /register-computer/requirements.txt --no-cache-dir
 COPY --from=build-cc /ksetpwd/ksetpwd /register-computer/kerberos/bin
 COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.* /register-computer/kerberos/bin/
