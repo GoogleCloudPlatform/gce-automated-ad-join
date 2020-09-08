@@ -87,8 +87,13 @@ static int reset_password(
         {
             com_err(NAME, 0, "Invalid password for agent principal");
         }
-        else {
-            com_err(NAME, ret, "Authenticating agent principal failed");
+        else if (result == KRB5KDC_ERR_C_PRINCIPAL_UNKNOWN)
+        {
+            com_err(NAME, 0, "Agent principal does not exist in Active Directory");
+        }
+        else
+        {
+            com_err(NAME, ret, "Authenticating agent principal failed with code %d", result);
         }
 
         goto cleanup;
