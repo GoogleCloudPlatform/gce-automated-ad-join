@@ -121,11 +121,12 @@ static int reset_password(
             message = NULL;
         }
 
-        fprintf(stderr, "%.*s%s%s\n",
+        fprintf(stderr, "%.*s%s%s (%d)\n",
             (int)server_result_code_string.length,
             server_result_code_string.data,
             message ? ": " : "",
-            message ? message : NULL);
+            message ? message : NULL,
+            server_result);
 
         result = KRB5_KPASSWD_SOFTERROR;
         goto cleanup;
