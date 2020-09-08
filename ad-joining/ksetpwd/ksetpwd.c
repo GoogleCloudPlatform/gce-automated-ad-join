@@ -121,7 +121,7 @@ static int reset_password(
             message = NULL;
         }
 
-        fprintf(stderr, "%.*s%s%s (%d)\n",
+        fprintf(stderr, "%.*s%s%s (error code %d)\n",
             (int)server_result_code_string.length,
             server_result_code_string.data,
             message ? ": " : "",
