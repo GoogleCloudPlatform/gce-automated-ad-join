@@ -38,4 +38,4 @@ COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.* /register-computer/kerbe
 USER runner
 WORKDIR /register-computer
 
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 docker:app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
