@@ -46,15 +46,15 @@ class KerberosPasswordClient(object):
             [realms]
                 %s = {
                     kdc = %s
-                    admin_server =%s
+                    admin_server = %s
             }
             """ % (self.__realm, self.__kdc, self.__admin_server)
 
-        temp_file = "/tmp/krb5.conf" # TODO_ tempfile.TemporaryFile().name
-        with open(temp_file, "w", encoding="utf8") as f:
+        handle, name = tempfile.mkstemp(prefix = "krb.")
+        with open(handle, "w", encoding = "utf-8") as f:
             f.write(config)
 
-        return temp_file
+        return name
 
     def set_password(self, upn, password):
         bin_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bin")
@@ -76,6 +76,9 @@ class KerberosPasswordClient(object):
             [ksetpwd, self.__client_upn.upper(), upn.upper()],
             capture_output=True,
             env=env)
+
+        # Delete KRB5 config
+        os.unlink(config_file)
 
         if process.returncode == 0:
             if process.stderr:
