@@ -50,7 +50,7 @@ class KerberosPasswordClient(object):
             }
             """ % (self.__realm, self.__kdc, self.__admin_server)
 
-        handle, name = tempfile.mkstemp(prefix = "krb.")
+        handle, name = tempfile.mkstemp(prefix = "krb5.")
         with open(handle, "w", encoding = "utf-8") as f:
             f.write(config)
 
