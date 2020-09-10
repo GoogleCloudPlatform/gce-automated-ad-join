@@ -40,6 +40,7 @@ import kerberos.password
 import werkzeug
 
 from hashlib import blake2b
+from flask import Flask, request
 
 # Silence "file_cache" warnings
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
@@ -538,17 +539,14 @@ def register_computer(request):
     else:
         return flask.abort(HTTP_BAD_METHOD)
 
+app = Flask(__name__)
+app.debug = False
+
+@app.route("/", methods=['GET', 'POST'])
+@app.route("/cleanup", methods=['GET', 'POST'])
+
+def index():
+    return register_computer(request)
 
 if __name__ == "__main__":
-    # Local testing/debugging only. This code is not run in Cloud Functions.
-    from flask import Flask, request
-
-    app = Flask(__name__)
-    app.debug=False
-
-    @app.route("/", methods=['GET', 'POST'])
-    @app.route("/cleanup", methods=['GET', 'POST'])
-    def index():
-        return register_computer(request)
-
     app.run()

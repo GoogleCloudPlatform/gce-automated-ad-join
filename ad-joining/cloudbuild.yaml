@@ -1,5 +1,5 @@
 #
-# Copyright 2019 Google LLC
+# Copyright 2020 Google LLC
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -19,13 +19,9 @@
 # under the License.
 #
 
-flask>=1.0.3
-requests>=2.22
-ldap3>=2.5.2
-google-auth>=1.6.2
-google-auth-httplib2>=0.0.3
-google-api-python-client>=1.7.8
-google-cloud-kms>=2.1.0
-oauth2client>=4.1.3
-dnspython>=1.16
-gunicorn>=20.0.4
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/$PROJECT_ID/register-computer:$SHORT_SHA', '-t', 'gcr.io/$PROJECT_ID/register-computer:latest', './ad-joining']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/$PROJECT_ID/register-computer:latest']
+images: ['gcr.io/$PROJECT_ID/register-computer:$SHORT_SHA']

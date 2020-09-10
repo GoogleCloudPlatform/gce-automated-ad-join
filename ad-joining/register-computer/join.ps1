@@ -37,7 +37,7 @@ $IdToken = (Invoke-RestMethod `
 $JoinInfo = (Invoke-RestMethod `
     -Headers @{"Authorization" = "Bearer $IdToken"} `
     -Method POST `
-    -Uri "https://%domain%/register-computer")
+    -Uri "https://%domain%/")
 
 Write-Host "Successfully registered computer account."
 $JoinInfoRedacted = $JoinInfo.PSObject.copy()

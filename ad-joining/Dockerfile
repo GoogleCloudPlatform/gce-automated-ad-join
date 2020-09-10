@@ -1,5 +1,5 @@
 #
-# Copyright 2019 Google LLC
+# Copyright 2020 Google LLC
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -19,13 +19,23 @@
 # under the License.
 #
 
-flask>=1.0.3
-requests>=2.22
-ldap3>=2.5.2
-google-auth>=1.6.2
-google-auth-httplib2>=0.0.3
-google-api-python-client>=1.7.8
-google-cloud-kms>=2.1.0
-oauth2client>=4.1.3
-dnspython>=1.16
-gunicorn>=20.0.4
+FROM gcc:latest as build-cc
+ADD /ksetpwd /ksetpwd
+RUN cd /ksetpwd && make ksetpwd
+
+FROM python:3.7-slim
+ADD /register-computer /register-computer
+RUN groupadd -r runner && \
+    useradd -rm -g runner runner && \
+    mkdir -p /register-computer/kerberos/bin && \
+    apt-get update && \
+    apt-get install -y libkrb5-3 && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip3 install -r /register-computer/requirements.txt --no-cache-dir
+COPY --from=build-cc /ksetpwd/ksetpwd /register-computer/kerberos/bin
+COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.* /register-computer/kerberos/bin/
+
+USER runner
+WORKDIR /register-computer
+
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
