@@ -79,6 +79,11 @@ static int reset_password(
     krb5_data server_result_string = {0};
     krb5_data server_result_code_string = {0};
 
+    const int RESULT_SUCCESS = 0;
+    const int RESULT_FAIL_AUTH_AGENT = 1;
+    const int RESULT_FAIL_SET_PWD_KERBEROS_ERROR = 2;
+    const int RESULT_FAIL_SET_PWD_SERVER_ERROR = 3;
+
     // Get initial credentials for agent.
     result = authenticate_agent(context, agent_principal, agent_principal_password, &agent_creds);
     if (result != 0)
@@ -96,6 +101,7 @@ static int reset_password(
             com_err(NAME, ret, "Authenticating agent principal failed with code %d", result);
         }
 
+        result = RESULT_FAIL_AUTH_AGENT;
         goto cleanup;
     }
 
@@ -110,6 +116,7 @@ static int reset_password(
         &server_result_string);
     if (result != 0)
     {
+        result = RESULT_FAIL_SET_PWD_KERBEROS_ERROR;
         com_err(NAME, ret, "Resetting password failed");
         goto cleanup;
     }
@@ -128,10 +135,11 @@ static int reset_password(
             message ? message : NULL,
             server_result);
 
-        result = KRB5_KPASSWD_SOFTERROR;
+        result = RESULT_FAIL_SET_PWD_SERVER_ERROR;
         goto cleanup;
     }
 
+    result = RESULT_SUCCESS;
     printf("Password changed.\n");
 
 cleanup:
