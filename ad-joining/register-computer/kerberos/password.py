@@ -25,7 +25,13 @@ import logging
 import tempfile
 
 class KerberosException(Exception):
-    pass
+    def __init__(self, message, error_code):
+        self.__message = message
+        self.__error_code = error_code
+        super().__init__(self.__message)
+
+    def get_error_code(self):
+        return self.__error_code
 
 class KerberosPasswordClient(object):
     KSETPWD_BINARY = "ksetpwd"
@@ -91,4 +97,4 @@ class KerberosPasswordClient(object):
             if process.stdout:
                 logging.warning(process.stdout)
 
-            raise KerberosException("Password reset failed: %d" % process.returncode)
+            raise KerberosException("Password reset failed: %d" % process.returncode, process.returncode)

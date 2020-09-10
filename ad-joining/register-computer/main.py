@@ -46,7 +46,7 @@ logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 logging.getLogger().setLevel(logging.INFO)
 
 MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
-PASSWORD_RESET_RETRIES = 8
+PASSWORD_RESET_RETRIES = 10
 
 #------------------------------------------------------------------------------
 # Utility functions.
@@ -399,12 +399,18 @@ def __register_computer(request):
                 break
 
             except kerberos.password.KerberosException as e:
+                if e.get_error_code() == 1:
+                    # Error is related to the agent (AD user). No point trying again
+                    logging.error("Setting password for '%s' failed. Unrecoverable error" % (computer_upn))
+                    raise e 
                 if set_password_attempt <= PASSWORD_RESET_RETRIES:
                     # Setting the password might fail, so try again using a new password.
+                    # Password setting is sent by AD to all DCs. Failure can occur in AD 
+                    # with multiple DCs, if replication did not yet happen, and some DCs 
+                    # are not aware to the new computer account.                    
                     logging.warning("Setting password for '%s' failed (attempt #%d), retrying with different password" % 
                         (computer_upn, set_password_attempt))
-                    time.sleep(1)
-
+                    time.sleep(2)
                 else:
                     # Give up
                     raise e
