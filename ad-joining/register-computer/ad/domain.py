@@ -26,6 +26,7 @@ import ldap3.core.exceptions
 import logging
 import datetime
 import dns.resolver
+import json
 
 class LdapException(Exception):
     pass
@@ -43,6 +44,7 @@ class ActiveDirectoryConnection(object):
     LDAP_ATTRIBUTE_PROJECT_ID    = "msDS-cloudExtensionAttribute1"
     LDAP_ATTRIBUTE_ZONE          = "msDS-cloudExtensionAttribute2"
     LDAP_ATTRIBUTE_INSTANCE_NAME = "msDS-cloudExtensionAttribute3"
+    LDAP_ATTRIBUTE_GROUP_DATA    = "msDS-AzApplicationData"
     ACTIVE_DIRECTORY_GROUP_TYPE_DOMAIN_LOCAL = 4
     ACTIVE_DIRECTORY_GROUP_TYPE_SECURITY = -2147483648
 
@@ -65,7 +67,6 @@ class ActiveDirectoryConnection(object):
             raise DomainControllerLookupException("No SRV records found for %s" % domain_name)
 
         records_sorted = sorted(records, key=lambda r: (-r.priority, r.weight, r.target))
-        logging.info(records_sorted)
         return [str(record.target) for record in records_sorted]
 
     @staticmethod
@@ -215,26 +216,34 @@ class ActiveDirectoryConnection(object):
         else:
             return self.__to_scalar(self.__connection.entries[0]["userPrincipalName"])
 
-    def get_group(self, group_name, search_base_dn):
+    def find_group(self, search_base_dn):
         try:
             self.__connection.search(
-                search_filter="(&(objectClass=group)(cn=%s))" % group_name,
+                search_filter="(&(objectClass=group))",
                 search_base=search_base_dn,
                 attributes=[
                     "distinguishedName",
                     "name",
-                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID])
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA,
+                    ])
 
             return [Group(
                     entry.entry_dn,
                     self.__to_scalar(entry["name"]),                    
-                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID]))
+                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA]))
                 for entry in self.__connection.entries]
         except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
             raise NoSuchObjectException(e)
 
-    def add_group(self, ou, group_name):
+    def add_group(self, ou, group_name, project_id, zone, region):
         try:           
+            metadata = {
+                "project_id" : project_id,
+                "zone" : zone,
+                "region" : region
+            }
+            group_metadata = json.dumps(metadata)
+
             dn = "CN=%s,%s" % (group_name, ou)
             self.__connection.add(
                 dn,
@@ -247,7 +256,8 @@ class ActiveDirectoryConnection(object):
                     "groupType": self.ACTIVE_DIRECTORY_GROUP_TYPE_DOMAIN_LOCAL + self.ACTIVE_DIRECTORY_GROUP_TYPE_SECURITY,
                     "objectClass": "group",
                     "name": group_name,
-                    "description" : "Group for computers of MIG '%s'" % (group_name)
+                    "description" : "Group for computers of MIG '%s'" % (group_name),
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA: group_metadata
                 })
             return dn
         except ldap3.core.exceptions.LDAPEntryAlreadyExistsResult as e:
@@ -262,6 +272,9 @@ class ActiveDirectoryConnection(object):
                 })
         except ldap3.core.exceptions.LDAPAttributeOrValueExistsResult as e:
             raise AlreadyExistsException(e)
+    
+    def delete_group(self, group_dn):
+        self.__connection.delete(group_dn)
 
     def get_user(self):
         return self.__connection.user
@@ -297,9 +310,21 @@ class Computer(NamedObject):
         return self.__project_id
 
 class Group(NamedObject):
-    def __init__(self, dn, name, project_id):
+    def __init__(self, dn, name, group_metadata):
         super(Group, self).__init__(dn, name)
-        self.__project_id = project_id
+        if group_metadata:
+            metadata = json.loads(group_metadata)
+        else:
+            metadata = {}
+        self.__region = metadata.get("region")
+        self.__zone = metadata.get("zone")
+        self.__project_id = metadata.get("project_id")
     
     def get_project_id(self):
         return self.__project_id
+    
+    def get_region(self):
+        return self.__region
+    
+    def get_zone(self):
+        return self.__zone
