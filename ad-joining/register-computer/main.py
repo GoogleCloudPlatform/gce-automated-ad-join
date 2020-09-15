@@ -177,7 +177,9 @@ def __serve_join_script(request):
     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "join.ps1"), 'r') as file:
         join_script = file.read().replace(
             "%domain%",
-            request.host)
+            request.host).replace(
+            "%scheme%",
+            request.scheme)
 
         return flask.Response(join_script, mimetype='text/plain')
 
@@ -198,7 +200,7 @@ def __register_computer(request):
     try:
         auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
             request.headers[headerName],
-            "https://%s/" % request.host)
+            "%s://%s/" % (request.scheme, request.host))
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
         return flask.abort(HTTP_ACCESS_DENIED)
@@ -444,7 +446,7 @@ def __cleanup_computers(request):
     try:
         auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
             request.headers[headerName],
-            "https://%s/" % request.host,
+            "%s://%s/" % (request.scheme, request.host),
             False)
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
