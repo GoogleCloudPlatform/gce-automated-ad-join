@@ -102,6 +102,7 @@ def __generate_password(length=40):
     return str(uuid.uuid4()) + "-" + str(uuid.uuid4())
 
 def __get_managed_instance_group_for_instance(gce_instance):
+    metadata_created_by = None
     if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
         metadata_created_by = next((x for x in gce_instance["metadata"]["items"] if x["key"] == "created-by"), None)
 
