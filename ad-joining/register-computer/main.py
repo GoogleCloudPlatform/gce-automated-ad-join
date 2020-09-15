@@ -80,8 +80,8 @@ def __read_ad_password():
         except Exception as e:
             logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
 
-        # Rethrow exception to stop processing the request
-        raise e
+    # If neither AD_PASSWORD nor Secret Manager hold the password raise exception
+    raise Exception("AD credentials not available")
 
 def __connect_to_activedirectory():
     domain = __read_required_setting("AD_DOMAIN")
