@@ -72,11 +72,15 @@ def __read_ad_password():
         # Retrieval requires the project, the name 
         # and version it was stored under
         client = secretmanager.SecretManagerServiceClient()
-        name = client.secret_version_path(__read_required_setting("SECRET_PROJECT_ID"), 
-            __read_required_setting("SECRET_NAME"), __read_required_setting("SECRET_VERSION"))
-        response = client.access_secret_version(name)
+        try:        
+            name = client.secret_version_path(__read_required_setting("SECRET_PROJECT_ID"), 
+                __read_required_setting("SECRET_NAME"), __read_required_setting("SECRET_VERSION"))
+            response = client.access_secret_version(name)
+            return response.payload.data.decode("UTF-8")
+        except Exception as e:
+            logging.exception("Could not retrieve secret from Secret Manager: %s" % e.msg)
 
-        return response.payload.data.decode("UTF-8")
+        raise e
 
 def __connect_to_activedirectory():
     domain = __read_required_setting("AD_DOMAIN")
