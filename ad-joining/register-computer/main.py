@@ -108,10 +108,18 @@ def __get_managed_instance_group_for_instance(gce_instance):
 
     if (metadata_created_by and "instanceGroupManagers" in metadata_created_by["value"]):
         # https://cloud.google.com/compute/docs/instance-groups/getting-info-about-migs#checking_if_a_vm_instance_is_part_of_a_mig
-        # The "created-by" metadata value is in the format
+        # The "created-by" metadata value is in the format of either:
         # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
-        # Return only the last part (the MIG name) from the value
-        return (metadata_created_by["value"]).rsplit('/', 1)[-1]
+        # or
+        # # projects/[number]/regions/[region]/instanceGroupManagers/[mig-name]
+        # Return the mig-name, and the region/zone it belongs to
+        mig_info = {}
+        mig_id_parts = (metadata_created_by["value"]).split('/')
+        mig_info["zone"] = mig_id_parts[3] if mig_id_parts[2] == "zones" else None
+        mig_info["region"] = mig_id_parts[3] if mig_id_parts[2] == "regions" else None
+        mig_info["name"] = mig_id_parts[5]
+
+        return mig_info
     else:
         return
 
@@ -330,7 +338,8 @@ def __register_computer(request):
                 flask.abort(HTTP_CONFLICT)
 
         # Check if the instance is part of a Managed Instance Group (MIG)
-        mig_name = __get_managed_instance_group_for_instance(gce_instance)
+        mig_info = __get_managed_instance_group_for_instance(gce_instance)
+        mig_name = mig_info.get("name") if mig_info else None
 
         # New instances of MIGs are added to AD groups named after the MIGs.
         # Having an AD group with the MIG's computers is useful for managing
@@ -343,28 +352,29 @@ def __register_computer(request):
                 % (auth_info.get_instance_name(), mig_name))
 
             # Find if the MIG already has an AD group
-            mig_ad_group = ad_connection.get_group(mig_name, computer_ou)
+            mig_dn = ("CN=%s,%s" % (mig_name, computer_ou))
+            try:
+                mig_ad_group = ad_connection.find_group(mig_dn)
 
-            if len(mig_ad_group) == 0:
+                logging.info("AD Group '%s' found. Adding computer '%s' to the group"
+                    %(mig_name, auth_info.get_instance_name()))
+            except ad.domain.NoSuchObjectException as e:
+                # Group does not exists, create it.
                 try:
-                    # Group does not exists, create it.
                     logging.info("AD Group '%s' not found. Attempting to create it" % (mig_name))
-                    ad_connection.add_group(computer_ou, mig_name)
+                    ad_connection.add_group(computer_ou, mig_name, auth_info.get_project_id(), mig_info["zone"], mig_info["region"])
                 except ad.domain.AlreadyExistsException:
                     # Two options why group already exists:
                     # 1. Group was just created by a parallel process adding another computer from the same MIG
                     # 2. Group by this name already exists in a different project
-                    mig_ad_group = ad_connection.get_group(mig_name, computer_ou)
-                    if (mig_ad_group) == 0:
+                    mig_ad_group = ad_connection.find_group(mig_dn)
+                    if len(mig_ad_group) == 0:
                         logging.error("Failed adding AD Group for MIG '%s' in project '%s'. There is probably a MIG by this name in another OU" 
                             % (mig_name, auth_info.get_project_id()))
                         flask.abort(HTTP_CONFLICT)
                     else: 
                         # Group added in the same project, safe to proceed
-                        logging.info("AD Group '%s' found while creating. Assuming it was added by another computer joining in parallel" % (mig_name))
-            else:
-                logging.info("AD Group '%s' found. Adding computer '%s' to the group"
-                    %(mig_name, auth_info.get_instance_name()))
+                        logging.info("AD Group '%s' found while creating. Assuming it was added by another computer joining in parallel" % (mig_name))                
 
             # Add the computer account to group
             ad_connection.add_member_to_group(computer_ou, mig_name, computer_account_dn)
@@ -474,7 +484,7 @@ def __cleanup_computers(request):
     projects_dn = __read_required_setting("PROJECTS_DN")
     result = {}
     for ou in ad_connection.find_ou(projects_dn):
-        try:
+        try:            
             project_id = ou.get_name()
 
             # Look up list of computer acconts and the zones they are located in.
@@ -483,8 +493,11 @@ def __cleanup_computers(request):
 
             # Try to obtain the full list of instances in this project. This might
             # fail if we have lost access to the project.
-            instance_names = gcp.project.Project(project_id).get_instance_names(zones)
-
+            instance_names = gcp.project.Project(project_id).get_instance_names(zones)            
+            output = {
+                "computers" : {},
+                "groups" : {}
+            }
             accounts_deleted = 0
             accounts_failed = 0
 
@@ -511,17 +524,61 @@ def __cleanup_computers(request):
                         logging.error("Failed to delete stale compute account '%s' (project '%s')" % (computer.get_name(), project_id))
                         accounts_failed += 1
 
-                # Gather metrics for respomse.
-                result[project_id] = {
-                    "stale_accounts": accounts_deleted + accounts_failed,
-                    "accounts_deleted": accounts_deleted,
-                    "accounts_failed": accounts_failed
-                }
+            # Gather metrics for response.
+            output["computers"] = {
+                "stale_accounts": accounts_deleted + accounts_failed,
+                "accounts_deleted": accounts_deleted,
+                "accounts_failed": accounts_failed
+            }
 
             logging.info("Done checking for stale computer accounts in project "+
                 "'%s' - %d accounts deleted, %d failed to be deleted" %
                 (project_id, accounts_deleted, accounts_failed))
 
+            # After deleting stale computers, look for empty groups.
+            # Empty group means either its MIG has no computers (scaled to 0), 
+            # or the MIG was deleted
+            mig_ad_groups = ad_connection.find_group(ou.get_dn())            
+            zones = set([g.get_zone() for g in mig_ad_groups if g.get_zone() != None])
+            regions = set([g.get_region() for g in mig_ad_groups if g.get_region() != None])
+            mig_names = gcp.project.Project(project_id).get_managed_instance_group_names(zones, regions)
+
+            accounts_deleted = 0
+            accounts_failed = 0
+            logging.info("Checking for stale managed instance groups in project '%s'" % project_id)
+            for mig_ad_group in mig_ad_groups:                
+                if not mig_ad_group.get_project_id():
+                    logging.info("Ignoring group '%s' as it lacks for GCE annotations" % mig_ad_group.get_name())
+
+                elif mig_ad_group.get_name() in mig_names:
+                    # MIG still exists, fine.
+                    pass
+
+                elif mig_ad_group.get_project_id() != project_id:
+                    logging.warning("Group '%s' is misplaced - located in '%s', but should be in '%s' OU" %
+                        (mig_ad_group.get_name(), project_id, mig_ad_group.get_project_id()))
+
+                else:
+                    logging.info("Group '%s' (project '%s') is stale" % (mig_ad_group.get_name(), project_id))
+                    try:
+                        ad_connection.delete_group(mig_ad_group.get_dn())
+                        accounts_deleted += 1
+
+                    except Exception as e:
+                        logging.error("Failed to delete stale group '%s' (project '%s')" % (mig_ad_group.get_name(), project_id))
+                        accounts_failed += 1
+
+            # Gather metrics for response.
+            output["groups"] = {
+                "stale_accounts": accounts_deleted + accounts_failed,
+                "accounts_deleted": accounts_deleted,
+                "accounts_failed": accounts_failed
+            }
+
+            result[project_id] = output
+            logging.info("Done checking for stale groups in project "+
+                "'%s' - %d group deleted, %d failed to be deleted" %
+                (project_id, accounts_deleted, accounts_failed))
         except Exception as e:
             # We cannot access this project, ignore.
             logging.warning("Skipping project '%s' as it is inaccessible: %s" % (project_id, str(e)))
