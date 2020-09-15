@@ -68,10 +68,10 @@ def __read_ad_password():
         # Cleartext password provided (useful for testing).
         return os.environ["AD_PASSWORD"]
     else:
-        # Retrieve the secret stored in Secret Manager
-        # Retrieval requires the project, the name 
-        # and version it was stored under
         client = secretmanager.SecretManagerServiceClient()
+        
+        # If the Service Account does not have permissions
+        # to access the secret an Exception will be raised
         try:        
             name = client.secret_version_path(__read_required_setting("SECRET_PROJECT_ID"), 
                 __read_required_setting("SECRET_NAME"), __read_required_setting("SECRET_VERSION"))
@@ -80,6 +80,7 @@ def __read_ad_password():
         except Exception as e:
             logging.exception("Could not retrieve secret from Secret Manager: %s" % e.msg)
 
+        # Rethrow exception to stop processing the request
         raise e
 
 def __connect_to_activedirectory():
