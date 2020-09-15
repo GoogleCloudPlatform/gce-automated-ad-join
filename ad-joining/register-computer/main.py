@@ -78,7 +78,7 @@ def __read_ad_password():
             response = client.access_secret_version(name)
             return response.payload.data.decode("UTF-8")
         except Exception as e:
-            logging.exception("Could not retrieve secret from Secret Manager: %s" % e.msg)
+            logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
 
         # Rethrow exception to stop processing the request
         raise e
