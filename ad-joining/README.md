@@ -25,8 +25,9 @@ The `register-computer` obtains its configuration from the environment and suppo
 * `AD_DOMAINCONTROLLER` (optional): Name or IP of domain controller to use. If not specified, the function will locate a domain controller via DNS automatically. This variable should only be used for testing.
 * `AD_USERNAME` (required): Username of Active Directory service user. The user must have permission to manage computer objects in the OUs used for automatic domain joining. The value must be provided in `NETBIOS-DOMAIN\SAM-ACCOUNT-NAME` format, UPNs are not supported.
 * `AD_PASSWORD` (optional): Clear-text password of Active Directory service user.  This variable should only be used for testing.
-* `AD_PASSWORD_CIPHER` (required unless `AD_PASSWORD` is used) Base64-encoded, Cloud KMS-encrypted password of Active Directory service user.
-* `CLOUDKMS_KEY` (required unless `AD_PASSWORD` is used): Resource ID of the Cloud KMS key used to encrypt the password. Example: `projects/myproject/locations/global/keyRings/computer-registrar-keyring/cryptoKeys/computer-registrar-key`.
+* `SECRET_PROJECT_ID` (required unless `AD_PASSWORD` is used): Project ID under which the AD credentials have been stored in Secret Manager.
+* `SECRET_NAME` (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
+* `SECRET_VERSION` (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager.
 * `PROJECTS_DN`: DN of the OU containing the individual project OUs.
 
 If you run the functional locally, you will need to pass the following, additional environment variables to simulate a
