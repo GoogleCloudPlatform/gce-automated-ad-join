@@ -73,7 +73,7 @@ def __read_ad_password():
         # and version it was stored under
         client = secretmanager.SecretManagerServiceClient()
         name = client.secret_version_path(__read_required_setting("SECRET_PROJECT_ID"), 
-            __read_required_setting("SECRET_ID"), __read_required_setting("SECRET_VERSION"))
+            __read_required_setting("SECRET_NAME"), __read_required_setting("SECRET_VERSION"))
         response = client.access_secret_version(name)
 
         return response.payload.data.decode("UTF-8")
