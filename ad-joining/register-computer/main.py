@@ -73,8 +73,10 @@ def __read_ad_password():
         # If the Service Account does not have permissions
         # to access the secret an Exception will be raised
         try:        
-            name = client.secret_version_path(__read_required_setting("SECRET_PROJECT_ID"), 
-                __read_required_setting("SECRET_NAME"), __read_required_setting("SECRET_VERSION"))
+            name = client.secret_version_path(
+                    __read_required_setting("SECRET_PROJECT_ID"), 
+                    __read_required_setting("SECRET_NAME"), 
+                    __read_required_setting("SECRET_VERSION"))
             response = client.access_secret_version(name)
             return response.payload.data.decode("UTF-8")
         except Exception as e:
