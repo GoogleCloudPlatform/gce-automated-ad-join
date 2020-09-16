@@ -28,9 +28,9 @@ import uuid
 import string
 import time
 
-import google.cloud.kms_v1
 import google.auth
 import googleapiclient.discovery
+from google.cloud import secretmanager
 
 import gcp.auth
 import gcp.project
@@ -68,10 +68,21 @@ def __read_ad_password():
         # Cleartext password provided (useful for testing).
         return os.environ["AD_PASSWORD"]
     else:
-        # Decrypt password cipher using the Cloud KMS key provided.
-        return google.cloud.kms_v1.KeyManagementServiceClient().decrypt(
-            name=__read_required_setting("CLOUDKMS_KEY"),
-            ciphertext=base64.b64decode(__read_required_setting("AD_PASSWORD_CIPHER"))).plaintext.decode("utf-8").strip()
+        client = secretmanager.SecretManagerServiceClient()
+        
+        # If the Service Account does not have permissions
+        # to access the secret an Exception will be raised
+        try:        
+            name = client.secret_version_path(
+                    __read_required_setting("SECRET_PROJECT_ID"), 
+                    __read_required_setting("SECRET_NAME"), 
+                    __read_required_setting("SECRET_VERSION"))
+            response = client.access_secret_version(name)
+            return response.payload.data.decode("UTF-8")
+        except Exception as e:
+            # If neither AD_PASSWORD nor Secret Manager hold the password rethrow exception
+            logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
+            raise e
 
 def __connect_to_activedirectory():
     domain = __read_required_setting("AD_DOMAIN")
