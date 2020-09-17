@@ -56,6 +56,9 @@ PASSWORD_RESET_RETRIES = 10
 class ConfigurationException(Exception):
     pass
 
+def __get_request_scheme(request):
+    return request.headers.get("X-Forwarded-Proto", request.scheme)
+
 def __read_required_setting(key):
     if not key in os.environ:
         logging.fatal("%s not defined in environment" % key)
@@ -113,27 +116,25 @@ def __connect_to_activedirectory():
 def __generate_password(length=40):
     return str(uuid.uuid4()) + "-" + str(uuid.uuid4())
 
-def __get_managed_instance_group_for_instance(gce_instance):
-    metadata_created_by = None
+def __get_managed_instance_group_for_instance(gce_instance):    
     if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
         metadata_created_by = next((x for x in gce_instance["metadata"]["items"] if x["key"] == "created-by"), None)
 
-    if (metadata_created_by and "instanceGroupManagers" in metadata_created_by["value"]):
-        # https://cloud.google.com/compute/docs/instance-groups/getting-info-about-migs#checking_if_a_vm_instance_is_part_of_a_mig
-        # The "created-by" metadata value is in the format of either:
-        # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
-        # or
-        # # projects/[number]/regions/[region]/instanceGroupManagers/[mig-name]
-        # Return the mig-name, and the region/zone it belongs to
-        mig_info = {}
-        mig_id_parts = (metadata_created_by["value"]).split('/')
-        mig_info["zone"] = mig_id_parts[3] if mig_id_parts[2] == "zones" else None
-        mig_info["region"] = mig_id_parts[3] if mig_id_parts[2] == "regions" else None
-        mig_info["name"] = mig_id_parts[5]
+        if (metadata_created_by and "instanceGroupManagers" in metadata_created_by["value"]):
+            # https://cloud.google.com/compute/docs/instance-groups/getting-info-about-migs#checking_if_a_vm_instance_is_part_of_a_mig
+            # The "created-by" metadata value is in the format of either:
+            # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
+            # or
+            # # projects/[number]/regions/[region]/instanceGroupManagers/[mig-name]
+            # Return the mig-name, and the region/zone it belongs to
+            mig_info = {}
+            mig_id_parts = (metadata_created_by["value"]).split('/')
+            mig_info["zone"] = mig_id_parts[3] if mig_id_parts[2] == "zones" else None
+            mig_info["region"] = mig_id_parts[3] if mig_id_parts[2] == "regions" else None
+            mig_info["name"] = mig_id_parts[5]
 
-        return mig_info
-    else:
-        return
+            return mig_info
+    return
 
 def __is_gke_nodepool_member(gce_instance):
     return ("labels" in gce_instance.keys() and 'goog-gke-node' in gce_instance["labels"])
@@ -181,6 +182,7 @@ def __shorten_computer_name(computer_name, gce_instance):
 # HTTP endpoints.
 #------------------------------------------------------------------------------
 
+HTTP_OK = 200
 HTTP_BAD_METHOD = 405
 HTTP_AUTHENTICATION_REQUIRED = 401
 HTTP_ACCESS_DENIED = 403
@@ -199,7 +201,7 @@ def __serve_join_script(request):
             "%domain%",
             request.host).replace(
             "%scheme%",
-            request.scheme)
+            __get_request_scheme(request))
 
         return flask.Response(join_script, mimetype='text/plain')
 
@@ -220,7 +222,7 @@ def __register_computer(request):
     try:
         auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
             request.headers[headerName],
-            "%s://%s/" % (request.scheme, request.host))
+            "%s://%s/" % (__get_request_scheme(request), request.host))
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
         return flask.abort(HTTP_ACCESS_DENIED)
@@ -468,7 +470,7 @@ def __cleanup_computers(request):
     try:
         auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
             request.headers[headerName],
-            "%s://%s/" % (request.scheme, request.host),
+            "%s://%s/" % (__get_request_scheme(request), request.host),
             False)
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
@@ -607,7 +609,10 @@ def register_computer(request):
     """
         Cloud Functions entry point.
     """
-    if request.path == "/cleanup" and request.method == "POST":
+    if request.path == "/hc" and request.method == "GET":
+        # Health Check
+        return flask.Response(status=HTTP_OK)
+    elif request.path == "/cleanup" and request.method == "POST":
         return __cleanup_computers(request)
     elif request.path == "/" and request.method == "GET":
         return __serve_join_script(request)
@@ -621,6 +626,7 @@ app.debug = False
 
 @app.route("/", methods=['GET', 'POST'])
 @app.route("/cleanup", methods=['GET', 'POST'])
+@app.route("/hc", methods=['GET'])
 
 def index():
     return register_computer(request)
