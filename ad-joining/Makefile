@@ -40,10 +40,11 @@ ksetpwd: prerequisites
 	make -C ksetpwd
 
 deploy: ksetpwd
-	gcloud beta functions deploy register-computer \
+	gcloud functions deploy register-computer \
 	  --entry-point=register_computer \
 	  --runtime=python37 \
 	  --trigger-http \
+      --allow-unauthenticated \
 	  --source=register-computer \
 	  --service-account=$(REGISTRAR_EMAIL) \
 	  --project=$(DOMAIN_PROJECT_ID) \
