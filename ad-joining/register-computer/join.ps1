@@ -78,7 +78,8 @@ do {
             -DomainName $JoinInfo.Domain `
             -Credential $Credentials `
             -OUPath $JoinInfo.OrgUnitPath `
-            -Options UnsecuredJoin,PasswordPass,JoinWithNewName 
+            -Options UnsecuredJoin,PasswordPass,JoinWithNewName `
+            -Force
 
         Write-Host "Computer successfully joined to domain"
         break
