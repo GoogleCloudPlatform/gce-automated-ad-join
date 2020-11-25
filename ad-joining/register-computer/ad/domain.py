@@ -67,7 +67,7 @@ class ActiveDirectoryConnection(object):
             raise DomainControllerLookupException("No SRV records found for %s" % domain_name)
 
         records_sorted = sorted(records, key=lambda r: (-r.priority, r.weight, r.target))
-        return [str(record.target)[:-1] if str(record.target).endswith(".") else str(record.targt) for record in records_sorted]
+        return [str(record.target)[:-1] if str(record.target).endswith(".") else str(record.target) for record in records_sorted]
 
     @staticmethod
     def connect(domain_controller, base_dn, user, password):
