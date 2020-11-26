@@ -48,7 +48,7 @@ class KerberosPasswordClient(object):
                     kdc = %s
                     admin_server =%s
             }
-            """ % (self.__realm, self.__kdc, self.__admin_server)
+            """ % (self.__realm.upper(), self.__kdc, self.__admin_server)
 
         temp_file = "/tmp/krb5.conf" # TODO_ tempfile.TemporaryFile().name
         with open(temp_file, "w", encoding="utf8") as f:
