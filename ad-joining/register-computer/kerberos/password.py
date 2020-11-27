@@ -47,6 +47,8 @@ class KerberosPasswordClient(object):
         config = """[libdefaults]
 default_tkt_enctypes = rc4-hmac
 default_tgs_enctypes = rc4-hmac
+dns_lookup_realm = false
+dns_lookup_kdc = false
 
 [realms]
 %s = {
