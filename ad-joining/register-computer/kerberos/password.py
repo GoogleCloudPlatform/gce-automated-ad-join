@@ -44,17 +44,16 @@ class KerberosPasswordClient(object):
         self.__client_password = client_password
 
     def __generate_config_file(self):
-        config = """
-            [libdefaults]
-                default_tkt_enctypes = rc4-hmac
-                default_tgs_enctypes = rc4-hmac
+        config = """[libdefaults]
+default_tkt_enctypes = rc4-hmac
+default_tgs_enctypes = rc4-hmac
 
-            [realms]
-                %s = {
-                    kdc = %s
-                    admin_server = %s
-            }
-            """ % (self.__realm.upper(), self.__kdc, self.__admin_server)
+[realms]
+%s = {
+    kdc = %s
+    admin_server = %s
+}
+""" % (self.__realm.upper(), self.__kdc, self.__admin_server)
 
         handle, name = tempfile.mkstemp(prefix = "krb5.")
         with open(handle, "w", encoding = "utf-8") as f:
