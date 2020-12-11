@@ -16,7 +16,7 @@ spec:
         app: ad-join-service
     spec:
       containers:
-      - image: gcr.io/[PROJECT_ID]/register-computer:latest
+      - image: gcr.io/$PROJECT_ID/register-computer:latest
         imagePullPolicy: Always
         name: ad-join-service
         ports:
