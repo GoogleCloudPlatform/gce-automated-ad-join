@@ -29,6 +29,7 @@ spec:
         envFrom:
         - configMapRef:
             name: register-computer-config
+      serviceAccountName: register-computer
 ---
 apiVersion: v1
 kind: Service
