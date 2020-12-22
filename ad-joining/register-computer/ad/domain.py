@@ -91,25 +91,41 @@ class ActiveDirectoryConnection(object):
     def get_domain_controller(self):
         return self.__domain_controller
 
-    def find_ou(self, search_base_dn, name=None):
+    def find_ou(self, search_base_dn, name=None, includeDescendants=True):
         if name:
             filter = "(&(objectClass=organizationalUnit)(name=%s))" % ldap3.utils.conv.escape_filter_chars(name)
         else:
             filter = "(objectClass=organizationalUnit)"
 
-        self.__connection.search(
-            search_filter=filter,
-            search_base=search_base_dn,
-            attributes=["distinguishedName", "name"])
+        if includeDescendants:
+            search_scope = ldap3.SUBTREE
+        else:
+            search_scope = ldap3.BASE
+        try:
+            self.__connection.search(
+                search_filter=filter,
+                search_base=search_base_dn,
+                search_scope=search_scope,
+                attributes=["distinguishedName", "name"])
 
-        return [OrganizationalUnit(entry.entry_dn, self.__to_scalar(entry["name"]))
-            for entry in self.__connection.entries]
+            return [OrganizationalUnit(entry.entry_dn, self.__to_scalar(entry["name"]))
+                for entry in self.__connection.entries]
+        except ldap3.core.exceptions.LDAPNoSuchObjectResult:
+            # In case OU was not found, return an empty array instead of raising an exception
+            return []
 
     def find_computer(self, search_base_dn):
+        # Search either for the specific group or in the base DN (but not its descendants)
+        if search_base_dn.startswith("CN="):
+            search_scope = ldap3.BASE
+        else:
+            search_scope = ldap3.LEVEL
+
         try:
             self.__connection.search(
                 search_filter="(objectClass=computer)",
                 search_base=search_base_dn,
+                search_scope=search_scope,
                 attributes=[
                     "distinguishedName",
                     "name",
@@ -217,10 +233,17 @@ class ActiveDirectoryConnection(object):
             return self.__to_scalar(self.__connection.entries[0]["userPrincipalName"])
 
     def find_group(self, search_base_dn):
+        # Search either for the specific group or in the base DN (but not its descendants)
+        if search_base_dn.startswith("CN="):
+            search_scope = ldap3.BASE
+        else:
+            search_scope = ldap3.LEVEL
+
         try:
             self.__connection.search(
                 search_filter="(&(objectClass=group))",
                 search_base=search_base_dn,
+                search_scope=search_scope,
                 attributes=[
                     "distinguishedName",
                     "name",
@@ -229,7 +252,7 @@ class ActiveDirectoryConnection(object):
 
             return [Group(
                     entry.entry_dn,
-                    self.__to_scalar(entry["name"]),                    
+                    self.__to_scalar(entry["name"]),
                     self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA]))
                 for entry in self.__connection.entries]
         except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
