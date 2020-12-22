@@ -178,6 +178,25 @@ def __shorten_computer_name(computer_name, gce_instance):
         new_computer_name = ("%s-%s" % (instance_name_prefix, instance_name_hash))
     return new_computer_name
 
+
+def __get_computer_ou(project_ou, gce_instance):
+    # project_ou is the default OU for the computer,
+    # unless service is configured to allow custom OUs and
+    # the VM instance metadata contains a custom OU
+    computer_ou = project_ou
+
+    if "CUSTOM_OU_ROOT_DN" in os.environ:        
+        # TODO - is the OU in the metadata a full OU or only the prefix to be added to the custom OU root?
+        logging.debug("Service configuration is allowing custom OUs")
+        if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
+            target_ou = next((x for x in gce_instance["metadata"]["items"] if x["key"].lower() == "target_ou"), None)
+            if target_ou:
+                computer_ou = target_ou["value"]
+            else:
+                logging.debug("Instance metadata is missing a custom OU")
+    
+    return computer_ou
+
 #------------------------------------------------------------------------------
 # HTTP endpoints.
 #------------------------------------------------------------------------------
@@ -245,6 +264,7 @@ def __register_computer(request):
     # # project id. The existence of such a OU implies that the owner of the
     # domain is OK with joining machines from that project.
     try:
+        
         matches = ad_connection.find_ou(__read_required_setting("PROJECTS_DN"), auth_info.get_project_id())
         if len(matches) == 0:
             logging.error("No OU with name '%s' found in directory" % auth_info.get_project_id())
@@ -255,8 +275,9 @@ def __register_computer(request):
         else:
             # There is an OU. That means the request is fine and we also know which
             # OU to create a computer account in.
-            computer_ou = matches[0].get_dn()
-            logging.info("Found OU '%s' to create computer account in, authorized (1/2)" % computer_ou)
+            project_ou = matches[0].get_dn()
+            #logging.info("Found OU '%s' to create computer account in, authorized (1/2)" % computer_ou)
+            logging.info("Found OU '%s', authorized (1/2)" % project_ou)
     except Exception as e:
         logging.exception("Looking up OU '%s' in Active Directory failed" % auth_info.get_project_id())
         return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
@@ -289,6 +310,10 @@ def __register_computer(request):
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
         return flask.abort(HTTP_ACCESS_DENIED)
     
+    #computer_ou = project_ou
+    computer_ou = __get_computer_ou(project_ou, gce_instance)
+    logging.info("Computer will be created in OU '%s'" % computer_ou)
+
     original_computer_name = computer_name
 
     if len(computer_name) > MAX_NETBIOS_COMPUTER_NAME_LENGTH:
@@ -325,7 +350,7 @@ def __register_computer(request):
                 computer_accounts = ad_connection.find_computer(computer_account_dn)
 
                 computer_account = computer_accounts[0]
-                # Validate this is the same project, instance name, and zone
+                # Validate this is the same project and instance name
                 is_same_computer = (computer_account.get_instance_name() == auth_info.get_instance_name() 
                     and computer_account.get_project_id() == auth_info.get_project_id())
 
@@ -349,8 +374,8 @@ def __register_computer(request):
                     logging.error("Account '%s' already exists in the project, but has different attributes" % (computer_name))
                     flask.abort(HTTP_CONFLICT)
             except ad.domain.NoSuchObjectException as e:
-                logging.error("Account '%s' already exists, but cannot be found in project '%s'. It probably belongs to a different project." % 
-                    (computer_name, auth_info.get_project_id()))
+                logging.error("Account '%s' from project '%s' already exists, but cannot be found in OU '%s'. It probably belongs to a different project or is configured to use a different OU" % 
+                    (computer_name, auth_info.get_project_id(), computer_ou))
                 flask.abort(HTTP_CONFLICT)
 
         # Check if the instance is part of a Managed Instance Group (MIG)
@@ -360,7 +385,7 @@ def __register_computer(request):
         # New instances of MIGs are added to AD groups named after the MIGs.
         # Having an AD group with the MIG's computers is useful for managing
         # Access control in the domain
-        if new_computer_account and mig_name:            
+        if new_computer_account and mig_name:
             # Add the computer to an AD group containing all the MIG's computers
             # This is only relevant to newly added computers
             # as previously added computers were already added to the group
@@ -385,6 +410,8 @@ def __register_computer(request):
                     # 2. Group by this name already exists in a different project
                     mig_ad_group = ad_connection.find_group(mig_dn)
                     if len(mig_ad_group) == 0:
+                        # This error should raise a flag, as AD creates each group with a unique SAM account name, therefore
+                        # we shouldn't get groups with the same ID in other OUs.
                         logging.error("Failed adding AD Group for MIG '%s' in project '%s'. There is probably a MIG by this name in another OU" 
                             % (mig_name, auth_info.get_project_id()))
                         flask.abort(HTTP_CONFLICT)
