@@ -180,30 +180,42 @@ def __shorten_computer_name(computer_name, gce_instance):
     return new_computer_name
 
 
-def __get_computer_ou(project_ou, gce_instance):
-    # project_ou is the default OU for the computer,
-    # unless service is configured to allow custom OUs and
-    # the VM instance metadata contains a custom OU
-    computer_ou = project_ou
+def __get_computer_ou(gce_instance):
+    gce_instance_name = gce_instance["name"]
+    logging.debug("Checking instance '%s' for target OU in metadata", gce_instance_name)
 
-    if "CUSTOM_OU_ROOT_DN" in os.environ:
-        logging.debug("Service configuration is allowing custom OUs")
-        if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
-            target_ou = next((x for x in gce_instance["metadata"]["items"] if x["key"].lower() == "target_ou"), None)
-            if target_ou:
-                computer_ou = target_ou["value"]
-            else:
-                logging.debug("Instance '%s' metadata is missing a custom OU" % gce_instance["name"])
+    if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
+        target_ou = next((x for x in gce_instance["metadata"]["items"] if x["key"].lower() == "target_ou"), None)
+        if target_ou:
+            return target_ou["value"]
         else:
-            logging.debug("Instance '%s' does not have metadata" % gce_instance["name"])
+            logging.info("Instance '%s' metadata is missing a custom OU" % gce_instance_name)
+    else:
+        logging.info("Instance '%s' does not have metadata" % gce_instance_name)
     
-    return computer_ou
+    return
+
+def __is_custom_ou_valid(ad_connection, custom_ou_dn):
+    try:
+        matches = ad_connection.find_ou(custom_ou_dn, includeDescendants=False)
+        if len(matches) == 0:
+            logging.info("No OU with name '%s' found in directory" % custom_ou_dn)
+        elif len(matches) > 1:
+            logging.info("Found multiple OUs with name '%s' in directory" % custom_ou_dn)
+        else:
+            return True
+    except Exception as e:
+        logging.exception("Looking up OU '%s' in Active Directory failed: '%s'" % (custom_ou_dn, str(e)))
+        raise
+
+    return False
 
 #------------------------------------------------------------------------------
 # HTTP endpoints.
 #------------------------------------------------------------------------------
 
 HTTP_OK = 200
+HTTP_BAD_REQUEST = 400
 HTTP_BAD_METHOD = 405
 HTTP_AUTHENTICATION_REQUIRED = 401
 HTTP_ACCESS_DENIED = 403
@@ -311,24 +323,39 @@ def __register_computer(request):
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
         return flask.abort(HTTP_ACCESS_DENIED)
     
-    computer_ou = __get_computer_ou(project_ou, gce_instance)
-    # If the OU is not the project's OU, verify it exits
-    if computer_ou != project_ou:
-        try:        
-            matches = ad_connection.find_ou(computer_ou)
-            if len(matches) == 0:
-                logging.error("No OU with name '%s' found in directory" % computer_ou)
-                return flask.abort(HTTP_ACCESS_DENIED)
-            elif len(matches) > 1:
-                logging.error("Found multiple OUs with name '%s' in directory" % computer_ou)
-                return flask.abort(HTTP_ACCESS_DENIED)
+    # If custom OU is being used, make sure all provided OUs (root and computer) are valid    
+    if "CUSTOM_OU_ROOT_DN" in os.environ:
+        try:
+            computer_ou = None
+            # The service is configured to use custom OUs. Make sure the root OU is valid
+            custom_ou_root = __read_required_setting("CUSTOM_OU_ROOT_DN")
+            logging.debug("Service is configured to use custom OU '%s'" % custom_ou_root)
+            if __is_custom_ou_valid(ad_connection, custom_ou_root):
+                # Locate the customer OU for the computer and make sure it is valid
+                custom_target_ou = __get_computer_ou(gce_instance)
+                if custom_target_ou and __is_custom_ou_valid(ad_connection, custom_target_ou):
+                    logging.debug("Found custom OU '%s' for compute instance '%s' in project '%s'" 
+                        % (custom_target_ou, auth_info.get_instance_name(), auth_info.get_project_id()))
+
+                    # Verify the OU provided for the computer is a descendant of the custom root OU
+                    if custom_target_ou.endswith(custom_ou_root):
+                        computer_ou = custom_target_ou
+                        logging.info("Computer will be created in a custom OU: '%s'" % custom_target_ou)
+                    else:
+                        logging.error("The OU '%s' provided by the computer instance '%s' is not a descendant of the root OU '%s'" 
+                            % (custom_target_ou, auth_info.get_instance_name(), custom_ou_root))
+                else:
+                    logging.error("The OU '%s' provided by the computer instance '%s' is either missing or not valid" 
+                        % (custom_target_ou, auth_info.get_instance_name()))
             else:
-                project_ou = matches[0].get_dn()                
-                logging.info("Computer will be created in a custom OU: '%s'" % computer_ou)
-        except Exception as e:
-            logging.exception("Looking up OU '%s' in Active Directory failed" % computer_ou)
+                logging.error("Custom OU root '%s' is not valid" % custom_ou_root)
+
+            if not computer_ou:
+                return flask.abort(HTTP_BAD_REQUEST)
+        except Exception:
             return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
     else:
+        computer_ou = project_ou
         logging.info("Computer will be created in a project OU: '%s'" % computer_ou)
 
     original_computer_name = computer_name
