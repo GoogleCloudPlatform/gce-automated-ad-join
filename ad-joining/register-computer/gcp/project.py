@@ -21,7 +21,6 @@
 
 import googleapiclient.discovery
 from googleapiclient.errors import HttpError
-import logging
 
 class Project(object):
     def __init__(self, project_id):
