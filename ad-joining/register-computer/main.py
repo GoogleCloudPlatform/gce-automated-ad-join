@@ -372,7 +372,8 @@ def __register_computer(request):
                     
                     new_computer_account = False
                 else:
-                    logging.error("Account '%s' already exists in the project, but has different attributes" % (computer_name))
+                    logging.error("Account '%s' already exists in OU '%s' with different attributes. Current attributes are (instance='%s', project='%s'), and requested attributes are (instance='%s', project='%s')" 
+                        % (computer_name, computer_ou, computer_account.get_instance_name(), computer_account.get_project_id(), auth_info.get_instance_name(), auth_info.get_project_id()))
                     flask.abort(HTTP_CONFLICT)
             except ad.domain.NoSuchObjectException as e:
                 logging.error("Account '%s' from project '%s' already exists, but cannot be found in OU '%s'. It probably belongs to a different project or is configured to use a different OU" % 
