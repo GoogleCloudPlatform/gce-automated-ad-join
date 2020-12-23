@@ -106,11 +106,17 @@ class ActiveDirectoryConnection(object):
             for entry in self.__connection.entries]
 
     def find_computer(self, search_base_dn):
+        # Search either for the specific group or in the base DN (but not its descendants)
+        if search_base_dn.startswith("CN="):
+            search_scope = ldap3.BASE
+        else:
+            search_scope = ldap3.LEVEL
+
         try:
             self.__connection.search(
                 search_filter="(objectClass=computer)",
                 search_base=search_base_dn,
-                search_scope=ldap3.LEVEL,
+                search_scope=search_scope,
                 attributes=[
                     "distinguishedName",
                     "name",
@@ -218,11 +224,17 @@ class ActiveDirectoryConnection(object):
             return self.__to_scalar(self.__connection.entries[0]["userPrincipalName"])
 
     def find_group(self, search_base_dn):
+        # Search either for the specific group or in the base DN (but not its descendants)
+        if search_base_dn.startswith("CN="):
+            search_scope = ldap3.BASE
+        else:
+            search_scope = ldap3.LEVEL
+
         try:
             self.__connection.search(
                 search_filter="(&(objectClass=group))",
                 search_base=search_base_dn,
-                search_scope=ldap3.LEVEL,
+                search_scope=search_scope,
                 attributes=[
                     "distinguishedName",
                     "name",
