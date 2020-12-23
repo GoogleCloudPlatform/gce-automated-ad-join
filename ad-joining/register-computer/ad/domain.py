@@ -110,6 +110,7 @@ class ActiveDirectoryConnection(object):
             self.__connection.search(
                 search_filter="(objectClass=computer)",
                 search_base=search_base_dn,
+                search_scope=ldap3.LEVEL,
                 attributes=[
                     "distinguishedName",
                     "name",
@@ -221,6 +222,7 @@ class ActiveDirectoryConnection(object):
             self.__connection.search(
                 search_filter="(&(objectClass=group))",
                 search_base=search_base_dn,
+                search_scope=ldap3.LEVEL,
                 attributes=[
                     "distinguishedName",
                     "name",
@@ -229,7 +231,7 @@ class ActiveDirectoryConnection(object):
 
             return [Group(
                     entry.entry_dn,
-                    self.__to_scalar(entry["name"]),                    
+                    self.__to_scalar(entry["name"]),
                     self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA]))
                 for entry in self.__connection.entries]
         except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
