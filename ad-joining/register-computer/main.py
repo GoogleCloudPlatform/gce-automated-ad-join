@@ -525,20 +525,18 @@ def __cleanup_computers(request):
     # a VM instance still exists, we therefore need to be careful in distinguishing
     # between the cases (1) the VM does not exist and (2) the VM is inaccessible.
 
-    # Iterate over all OUs underneath the projects OU.
+    # Iterate over all OUs underneath the projects OU or the custom OU, if specified
     projects_dn = __read_required_setting("PROJECTS_DN")
+    root_dn = os.getenv("CUSTOM_OU_ROOT_DN", projects_dn)
+    logging.info("Starting cleanup in OU '%s'" % root_dn)
+    
     result = {}
-    for ou in ad_connection.find_ou(projects_dn):
+    for ou in ad_connection.find_ou(root_dn):
         try:            
-            project_id = ou.get_name()
-
-            # Look up list of computer acconts and the zones they are located in.
+            ou_name = ou.get_dn()
+            # Look up list of computer accounts in the OU
             computer_accounts = ad_connection.find_computer(ou.get_dn())
-            zones = set([c.get_zone() for c in computer_accounts if c.get_zone() != None])
 
-            # Try to obtain the full list of instances in this project. This might
-            # fail if we have lost access to the project.
-            instance_names = gcp.project.Project(project_id).get_instance_names(zones)            
             output = {
                 "computers" : {},
                 "groups" : {}
@@ -546,27 +544,26 @@ def __cleanup_computers(request):
             accounts_deleted = 0
             accounts_failed = 0
 
-            logging.info("Checking for stale computer accounts in project '%s'" % project_id)
+            logging.info("Checking for stale computer accounts in OU '%s'" % ou_name)
             for computer in computer_accounts:
-                if not computer.get_instance_name():
+                if not computer.get_instance_name() or not computer.get_project_id() or not computer.get_project_id():
                     logging.info("Ignoring computer account '%s' as it lacks for GCE annotations" % computer.get_name())
 
-                elif computer.get_instance_name() in instance_names:
+                elif gcp.project.Project(computer.get_project_id()).get_instance(computer.get_instance_name(), computer.get_zone()):
                     # VM instance still exists, fine.
+                    logging.debug("Skipping computer account '%s' as it has a matching instance '%s' in project '%s'" 
+                        % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
                     pass
-
-                elif computer.get_project_id() != project_id:
-                    logging.warning("Computer account '%s' is misplaced - located in '%s', but should be in '%s' OU" %
-                        (computer.get_name(), project_id, computer.get_project_id()))
-
                 else:
-                    logging.info("Computer account '%s' (project '%s') is stale" % (computer.get_name(), project_id))
+                    logging.info("Computer account '%s' (instance '%s' in project '%s') is stale" 
+                        % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
                     try:
                         ad_connection.delete_computer(computer.get_dn())
                         accounts_deleted += 1
 
                     except Exception as e:
-                        logging.error("Failed to delete stale compute account '%s' (project '%s')" % (computer.get_name(), project_id))
+                        logging.error("Failed to delete stale compute account '%s' (instance '%s' in project '%s')" 
+                            % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
                         accounts_failed += 1
 
             # Gather metrics for response.
@@ -576,41 +573,32 @@ def __cleanup_computers(request):
                 "accounts_failed": accounts_failed
             }
 
-            logging.info("Done checking for stale computer accounts in project "+
+            logging.info("Done checking for stale computer accounts in OU "+
                 "'%s' - %d accounts deleted, %d failed to be deleted" %
-                (project_id, accounts_deleted, accounts_failed))
+                (ou_name, accounts_deleted, accounts_failed))
 
-            # After deleting stale computers, look for empty groups.
-            # Empty group means either its MIG has no computers (scaled to 0), 
-            # or the MIG was deleted
-            mig_ad_groups = ad_connection.find_group(ou.get_dn())            
-            zones = set([g.get_zone() for g in mig_ad_groups if g.get_zone() != None])
-            regions = set([g.get_region() for g in mig_ad_groups if g.get_region() != None])
-            mig_names = gcp.project.Project(project_id).get_managed_instance_group_names(zones, regions)
-
+            # After deleting stale computers, look for groups whose MIGs were removed
+            mig_ad_groups = ad_connection.find_group(ou.get_dn())
             accounts_deleted = 0
             accounts_failed = 0
-            logging.info("Checking for stale managed instance groups in project '%s'" % project_id)
+            logging.info("Checking for stale managed instance groups in OU '%s'" % ou_name)
             for mig_ad_group in mig_ad_groups:                
-                if not mig_ad_group.get_project_id():
+                if not mig_ad_group.get_project_id() or (not mig_ad_group.get_zone() and not mig_ad_group.get_region()):
                     logging.info("Ignoring group '%s' as it lacks for GCE annotations" % mig_ad_group.get_name())
 
-                elif mig_ad_group.get_name() in mig_names:
+                elif gcp.project.Project(mig_ad_group.get_project_id()).get_managed_instance_group(mig_ad_group.get_name(), mig_ad_group.get_zone(), mig_ad_group.get_region()):
                     # MIG still exists, fine.
+                    logging.debug("Skipping group '%s' as it has a matching managed instance group in project '%s'" 
+                        % (mig_ad_group.get_name(), mig_ad_group.get_project_id()))
                     pass
-
-                elif mig_ad_group.get_project_id() != project_id:
-                    logging.warning("Group '%s' is misplaced - located in '%s', but should be in '%s' OU" %
-                        (mig_ad_group.get_name(), project_id, mig_ad_group.get_project_id()))
-
                 else:
-                    logging.info("Group '%s' (project '%s') is stale" % (mig_ad_group.get_name(), project_id))
+                    logging.info("Group '%s' (project '%s') is stale" % (mig_ad_group.get_name(), mig_ad_group.get_project_id()))
                     try:
                         ad_connection.delete_group(mig_ad_group.get_dn())
                         accounts_deleted += 1
 
                     except Exception as e:
-                        logging.error("Failed to delete stale group '%s' (project '%s')" % (mig_ad_group.get_name(), project_id))
+                        logging.error("Failed to delete stale group '%s' (project '%s')" % (mig_ad_group.get_name(), mig_ad_group.get_project_id()))
                         accounts_failed += 1
 
             # Gather metrics for response.
@@ -620,13 +608,13 @@ def __cleanup_computers(request):
                 "accounts_failed": accounts_failed
             }
 
-            result[project_id] = output
-            logging.info("Done checking for stale groups in project "+
+            result[ou_name] = output
+            logging.info("Done checking for stale groups in OU "+
                 "'%s' - %d group deleted, %d failed to be deleted" %
-                (project_id, accounts_deleted, accounts_failed))
+                (ou_name, accounts_deleted, accounts_failed))
         except Exception as e:
             # We cannot access this project, ignore.
-            logging.warning("Skipping project '%s' as it is inaccessible: %s" % (project_id, str(e)))
+            logging.warning("Skipping OU '%s' as it is inaccessible: %s" % (ou_name, str(e)))
 
     return flask.jsonify(result)
 

@@ -20,6 +20,8 @@
 #
 
 import googleapiclient.discovery
+from googleapiclient.errors import HttpError
+import logging
 
 class Project(object):
     def __init__(self, project_id):
@@ -41,52 +43,34 @@ class Project(object):
 
         return zones
 
-    def get_instance_names(self, zones):
-        page_token = None
-        names = []
+    def get_instance(self, name, zone):
+        try:
+            computer = self.__gce_client.instances().get(
+                project=self.__project_id,
+                zone=zone,
+                instance=name).execute()
+            return computer
+        except HttpError as e:
+            # Ignore 404 (Not Found) and return without result. Report all other errors
+            if e.resp.status == 404:
+                return
+            raise
 
-        for zone in zones:
-            while True:
-                result = self.__gce_client.instances().list(
+    def get_managed_instance_group(self, group_name, zone, region):
+        try:
+            if zone:
+                result = self.__gce_client.instanceGroupManagers().get(
                     project=self.__project_id,
                     zone=zone,
-                    pageToken=page_token).execute()
-                if "items" in result:
-                    names += [item["name"] for item in result["items"]]
-
-                if not page_token:
-                    break
-
-        return names
-
-    def get_managed_instance_group_names(self, zones, regions):
-        page_token = None
-        names = []
-
-        # Get both zonal and regional managed instance groups
-        # as each has its own API
-        for zone in zones:
-            while True:
-                result = self.__gce_client.instanceGroupManagers().list(
-                    project=self.__project_id,
-                    zone=zone,
-                    pageToken=page_token).execute()
-                if "items" in result:
-                    names += [item["name"] for item in result["items"]]
-
-                if not page_token:
-                    break
-
-        for region in regions:
-            while True:
-                result = self.__gce_client.regionInstanceGroupManagers().list(
+                    instanceGroupManager=group_name).execute()
+            else:
+                result = self.__gce_client.regionInstanceGroupManagers().get(
                     project=self.__project_id,
                     region=region,
-                    pageToken=page_token).execute()
-                if "items" in result:
-                    names += [item["name"] for item in result["items"]]
-
-                if not page_token:
-                    break
-
-        return names
+                    instanceGroupManager=group_name).execute()
+            return result
+        except HttpError as e:
+            # Ignore 404 (Not Found) and return without result. Report all other errors
+            if e.resp.status == 404:
+                return
+            raise
