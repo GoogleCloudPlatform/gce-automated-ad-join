@@ -186,15 +186,16 @@ def __get_computer_ou(project_ou, gce_instance):
     # the VM instance metadata contains a custom OU
     computer_ou = project_ou
 
-    if "CUSTOM_OU_ROOT_DN" in os.environ:        
-        # TODO - is the OU in the metadata a full OU or only the prefix to be added to the custom OU root?
+    if "CUSTOM_OU_ROOT_DN" in os.environ:
         logging.debug("Service configuration is allowing custom OUs")
         if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
             target_ou = next((x for x in gce_instance["metadata"]["items"] if x["key"].lower() == "target_ou"), None)
             if target_ou:
                 computer_ou = target_ou["value"]
             else:
-                logging.debug("Instance metadata is missing a custom OU")
+                logging.debug("Instance '%s' metadata is missing a custom OU" % gce_instance["name"])
+        else:
+            logging.debug("Instance '%s' does not have metadata" % gce_instance["name"])
     
     return computer_ou
 
@@ -277,7 +278,6 @@ def __register_computer(request):
             # There is an OU. That means the request is fine and we also know which
             # OU to create a computer account in.
             project_ou = matches[0].get_dn()
-            #logging.info("Found OU '%s' to create computer account in, authorized (1/2)" % computer_ou)
             logging.info("Found OU '%s', authorized (1/2)" % project_ou)
     except Exception as e:
         logging.exception("Looking up OU '%s' in Active Directory failed" % auth_info.get_project_id())
@@ -311,9 +311,25 @@ def __register_computer(request):
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
         return flask.abort(HTTP_ACCESS_DENIED)
     
-    #computer_ou = project_ou
     computer_ou = __get_computer_ou(project_ou, gce_instance)
-    logging.info("Computer will be created in OU '%s'" % computer_ou)
+    # If the OU is not the project's OU, verify it exits
+    if computer_ou != project_ou:
+        try:        
+            matches = ad_connection.find_ou(computer_ou)
+            if len(matches) == 0:
+                logging.error("No OU with name '%s' found in directory" % computer_ou)
+                return flask.abort(HTTP_ACCESS_DENIED)
+            elif len(matches) > 1:
+                logging.error("Found multiple OUs with name '%s' in directory" % computer_ou)
+                return flask.abort(HTTP_ACCESS_DENIED)
+            else:
+                project_ou = matches[0].get_dn()                
+                logging.info("Computer will be created in a custom OU: '%s'" % computer_ou)
+        except Exception as e:
+            logging.exception("Looking up OU '%s' in Active Directory failed" % computer_ou)
+            return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
+    else:
+        logging.info("Computer will be created in a project OU: '%s'" % computer_ou)
 
     original_computer_name = computer_name
 
