@@ -44,7 +44,8 @@ from flask import Flask, request
 
 # Silence "file_cache" warnings
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
-logging.getLogger().setLevel(logging.INFO)
+logging_level = os.getenv("LOGGING_LEVEL", logging.INFO)
+logging.getLogger().setLevel(logging_level)
 
 MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 10
