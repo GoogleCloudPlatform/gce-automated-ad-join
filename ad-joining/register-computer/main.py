@@ -180,7 +180,7 @@ def __shorten_computer_name(computer_name, gce_instance):
     return new_computer_name
 
 
-def __get_computer_ou(gce_instance):
+def __get_computer_ou_from_metadata(gce_instance):
     gce_instance_name = gce_instance["name"]
     logging.debug("Checking instance '%s' for target OU in metadata", gce_instance_name)
 
@@ -209,6 +209,33 @@ def __is_custom_ou_valid(ad_connection, custom_ou_dn):
         raise
 
     return False
+
+def __get_custom_ou_for_computer(ad_connection, gce_instance, instance_name, project_id):
+    computer_ou = None
+    # The service is configured to use custom OUs. Make sure the root OU is valid
+    custom_ou_root = __read_required_setting("CUSTOM_OU_ROOT_DN")
+    logging.debug("Service is configured to use custom OU '%s'" % custom_ou_root)
+    if __is_custom_ou_valid(ad_connection, custom_ou_root):
+        # Locate the custom OU for the computer and make sure it is valid
+        custom_target_ou = __get_computer_ou_from_metadata(gce_instance)
+        if custom_target_ou and __is_custom_ou_valid(ad_connection, custom_target_ou):
+            logging.debug("Found custom OU '%s' for compute instance '%s' in project '%s'" 
+                % (custom_target_ou, instance_name, project_id))
+
+            # Verify the OU provided for the computer is a descendant of the custom root OU
+            if custom_target_ou.lower().endswith(custom_ou_root.lower()):
+                computer_ou = custom_target_ou
+                logging.info("Computer will be created in a custom OU: '%s'" % custom_target_ou)
+            else:
+                logging.error("The OU '%s' provided by the computer instance '%s' is not a descendant of the root OU '%s'" 
+                    % (custom_target_ou, instance_name, custom_ou_root))
+        else:
+            logging.error("The OU '%s' provided by the computer instance '%s' is either missing or not valid" 
+                % (custom_target_ou, instance_name))
+    else:
+        logging.error("Custom OU root '%s' is not valid" % custom_ou_root)
+    
+    return computer_ou
 
 #------------------------------------------------------------------------------
 # HTTP endpoints.
@@ -323,33 +350,10 @@ def __register_computer(request):
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
         return flask.abort(HTTP_ACCESS_DENIED)
     
-    # If custom OU is being used, make sure all provided OUs (root and computer) are valid    
+    # If custom OU is being used, then extract it from the compute instance 
     if "CUSTOM_OU_ROOT_DN" in os.environ:
         try:
-            computer_ou = None
-            # The service is configured to use custom OUs. Make sure the root OU is valid
-            custom_ou_root = __read_required_setting("CUSTOM_OU_ROOT_DN")
-            logging.debug("Service is configured to use custom OU '%s'" % custom_ou_root)
-            if __is_custom_ou_valid(ad_connection, custom_ou_root):
-                # Locate the customer OU for the computer and make sure it is valid
-                custom_target_ou = __get_computer_ou(gce_instance)
-                if custom_target_ou and __is_custom_ou_valid(ad_connection, custom_target_ou):
-                    logging.debug("Found custom OU '%s' for compute instance '%s' in project '%s'" 
-                        % (custom_target_ou, auth_info.get_instance_name(), auth_info.get_project_id()))
-
-                    # Verify the OU provided for the computer is a descendant of the custom root OU
-                    if custom_target_ou.endswith(custom_ou_root):
-                        computer_ou = custom_target_ou
-                        logging.info("Computer will be created in a custom OU: '%s'" % custom_target_ou)
-                    else:
-                        logging.error("The OU '%s' provided by the computer instance '%s' is not a descendant of the root OU '%s'" 
-                            % (custom_target_ou, auth_info.get_instance_name(), custom_ou_root))
-                else:
-                    logging.error("The OU '%s' provided by the computer instance '%s' is either missing or not valid" 
-                        % (custom_target_ou, auth_info.get_instance_name()))
-            else:
-                logging.error("Custom OU root '%s' is not valid" % custom_ou_root)
-
+            computer_ou = __get_custom_ou_for_computer(ad_connection, gce_instance, auth_info.get_instance_name(), auth_info.get_project_id())
             if not computer_ou:
                 return flask.abort(HTTP_BAD_REQUEST)
         except Exception:
@@ -590,7 +594,7 @@ def __cleanup_computers(request):
             logging.info("Checking for stale computer accounts in OU '%s'" % ou_name)
             for computer in computer_accounts:
                 if not computer.get_instance_name() or not computer.get_project_id() or not computer.get_project_id():
-                    logging.info("Ignoring computer account '%s' as it lacks for GCE annotations" % computer.get_name())
+                    logging.debug("Ignoring computer account '%s' as it lacks for GCE annotations" % computer.get_name())
 
                 elif gcp.project.Project(computer.get_project_id()).get_instance(computer.get_instance_name(), computer.get_zone()):
                     # VM instance still exists, fine.
@@ -627,7 +631,7 @@ def __cleanup_computers(request):
             logging.info("Checking for stale managed instance groups in OU '%s'" % ou_name)
             for mig_ad_group in mig_ad_groups:                
                 if not mig_ad_group.get_project_id() or (not mig_ad_group.get_zone() and not mig_ad_group.get_region()):
-                    logging.info("Ignoring group '%s' as it lacks for GCE annotations" % mig_ad_group.get_name())
+                    logging.debug("Ignoring group '%s' as it lacks for GCE annotations" % mig_ad_group.get_name())
 
                 elif gcp.project.Project(mig_ad_group.get_project_id()).get_managed_instance_group(mig_ad_group.get_name(), mig_ad_group.get_zone(), mig_ad_group.get_region()):
                     # MIG still exists, fine.
