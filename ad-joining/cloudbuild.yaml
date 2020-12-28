@@ -63,7 +63,7 @@ steps:
   - --set-env-vars=SECRET_PROJECT_ID=$PROJECT_ID 
   - --set-env-vars=SECRET_NAME=$_SECRET_NAME 
   - --set-env-vars=SECRET_VERSION=$_SECRET_VERSION 
-  - --set-env-vars=PROJECTS_DN=$_PROJECTS_DN
+  - --set-env-vars=^:^PROJECTS_DN=$_PROJECTS_DN
   - --vpc-connector=projects/$PROJECT_ID/locations/$_SERVERLESS_REGION/connectors/$_SERVERLESS_CONNECTOR
 
 images: ['gcr.io/$PROJECT_ID/register-computer:$_IMAGE_TAG']
