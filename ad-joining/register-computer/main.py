@@ -80,7 +80,7 @@ def __read_ad_password():
                     __read_required_setting("SECRET_PROJECT_ID"), 
                     __read_required_setting("SECRET_NAME"), 
                     __read_required_setting("SECRET_VERSION"))
-            response = client.access_secret_version(name)
+            response = client.access_secret_version(request={"name": name})
             return response.payload.data.decode("UTF-8")
         except Exception as e:
             # If neither AD_PASSWORD nor Secret Manager hold the password rethrow exception
