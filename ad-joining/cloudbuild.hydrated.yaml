@@ -20,15 +20,15 @@
 #
 
 substitutions:
-  _SERVERLESS_REGION: '__SERVERLESS_REGION__'
-  _PROJECTS_DN: '__PROJECTS_DN__'
-  _AD_DOMAIN: '__AD_DOMAIN__'
-  _AD_NETBIOS_DOMAIN: '__AD_NETBIOS_DOMAIN__'
-  _SERVICE_ACCOUNT_EMAIL: '__SERVICE_ACCOUNT_EMAIL__'
+  _SERVERLESS_REGION: 'us-central1'
+  _PROJECTS_DN: 'OU=Projects,DC=example,DC=org'
+  _AD_DOMAIN: 'example.org'
+  _AD_NETBIOS_DOMAIN: 'example'
+  _SERVICE_ACCOUNT_EMAIL: 'register-computer-app@jpassing-adjoin-3-host.iam.gserviceaccount.com'
 
   _IMAGE_TAG: 'latest'
   _SECRET_NAME: 'ad-password'
-  _SECRET_VERSION: 'latest'
+  _SECRET_VERSION: '1'
   _SERVERLESS_CONNECTOR: 'serverless-connector'
 
 steps:
