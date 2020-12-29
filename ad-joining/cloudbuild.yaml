@@ -24,8 +24,9 @@ substitutions:
   _PROJECTS_DN: '__PROJECTS_DN__'
   _AD_DOMAIN: '__AD_DOMAIN__'
   _AD_NETBIOS_DOMAIN: '__AD_NETBIOS_DOMAIN__'
-  _IMAGE_TAG: 'latest'
+  _SERVICE_ACCOUNT_EMAIL: '__SERVICE_ACCOUNT_EMAIL__'
 
+  _IMAGE_TAG: 'latest'
   _SECRET_NAME: 'ad-password'
   _SECRET_VERSION: '1'
   _SERVERLESS_CONNECTOR: 'serverless-connector'
@@ -63,6 +64,7 @@ steps:
   - --set-env-vars=SECRET_PROJECT_ID=$PROJECT_ID 
   - --set-env-vars=SECRET_NAME=$_SECRET_NAME 
   - --set-env-vars=SECRET_VERSION=$_SECRET_VERSION 
+  - --set-env-vars=FUNCTION_IDENTITY=$_SERVICE_ACCOUNT_EMAIL
   - --set-env-vars=^:^PROJECTS_DN=$_PROJECTS_DN
   - --vpc-connector=projects/$PROJECT_ID/locations/$_SERVERLESS_REGION/connectors/$_SERVERLESS_CONNECTOR
 
