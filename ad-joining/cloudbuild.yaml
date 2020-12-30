@@ -19,9 +19,53 @@
 # under the License.
 #
 
+substitutions:
+  _SERVERLESS_REGION: '__SERVERLESS_REGION__'
+  _PROJECTS_DN: '__PROJECTS_DN__'
+  _AD_DOMAIN: '__AD_DOMAIN__'
+  _AD_NETBIOS_DOMAIN: '__AD_NETBIOS_DOMAIN__'
+  _SERVICE_ACCOUNT_EMAIL: '__SERVICE_ACCOUNT_EMAIL__'
+
+  _IMAGE_TAG: 'latest'
+  _SECRET_NAME: 'ad-password'
+  _SECRET_VERSION: 'latest'
+  _SERVERLESS_CONNECTOR: 'serverless-connector'
+
 steps:
+# Build Docker image containing the Cloud Run app
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'gcr.io/$PROJECT_ID/register-computer:$SHORT_SHA', '-t', 'gcr.io/$PROJECT_ID/register-computer:latest', './ad-joining']
+  args: 
+  - build
+  - -t
+  - gcr.io/$PROJECT_ID/register-computer:$_IMAGE_TAG
+  - .
+
+# Push Docker image to Container Registry
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'gcr.io/$PROJECT_ID/register-computer:latest']
-images: ['gcr.io/$PROJECT_ID/register-computer:$SHORT_SHA']
+  args: 
+  - push
+  - gcr.io/$PROJECT_ID/register-computer:$_IMAGE_TAG
+  
+# Deploy to Cloud Run
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args: 
+  - run
+  - deploy
+  - register-computer
+  - --image=gcr.io/$PROJECT_ID/register-computer:$_IMAGE_TAG
+  - --project=$PROJECT_ID 
+  - --region=$_SERVERLESS_REGION
+  - --platform=managed
+  - --allow-unauthenticated
+  - --service-account=register-computer-app@$PROJECT_ID.iam.gserviceaccount.com
+  - --set-env-vars=AD_DOMAIN=$_AD_DOMAIN 
+  - --set-env-vars=AD_USERNAME=$_AD_NETBIOS_DOMAIN\register-computer 
+  - --set-env-vars=SECRET_PROJECT_ID=$PROJECT_ID 
+  - --set-env-vars=SECRET_NAME=$_SECRET_NAME 
+  - --set-env-vars=SECRET_VERSION=$_SECRET_VERSION 
+  - --set-env-vars=FUNCTION_IDENTITY=$_SERVICE_ACCOUNT_EMAIL
+  - --set-env-vars=^:^PROJECTS_DN=$_PROJECTS_DN
+  - --vpc-connector=projects/$PROJECT_ID/locations/$_SERVERLESS_REGION/connectors/$_SERVERLESS_CONNECTOR
+
+images: ['gcr.io/$PROJECT_ID/register-computer:$_IMAGE_TAG']
