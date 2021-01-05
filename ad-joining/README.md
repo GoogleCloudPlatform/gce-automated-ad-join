@@ -28,7 +28,7 @@ The `register-computer` app obtains its configuration from the environment and s
 * `AD_PASSWORD` (optional): Clear-text password of Active Directory service user.  This variable should only be used for testing.
 * `SECRET_PROJECT_ID` (required unless `AD_PASSWORD` is used): Project ID under which the AD credentials have been stored in Secret Manager.
 * `SECRET_NAME` (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
-* `SECRET_VERSION` (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager.
+* `SECRET_VERSION` (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager. Can be set to `latest`.
 * `PROJECTS_DN`: (required) Distinguished name of the OU containing the individual project OUs.
 * `FUNCTION_IDENTITY`: (required) Email address of the app's service account.
 * `LOGGING_LEVEL` (optional): Logging level for log messages. See [Logging Levels](https://docs.python.org/3/library/logging.html#levels) for acceptable values. The default logging level is set to INFO.
