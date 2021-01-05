@@ -35,25 +35,26 @@ The `register-computer` app obtains its configuration from the environment and s
 If you run the app locally, you will need to pass the following, additional environment variables to simulate a
 Cloud Run environment:
 
-* `GOOGLE_APPLICATION_CREDENTIALS` (required for testing): Path to a service account key of a service account that permits the app to interact with Compute Engine. Only required for local testing - when deployed to Cloud Run, the identity of the service account associated with the app will be used instead.
+* `GOOGLE_APPLICATION_CREDENTIALS` (required for testing): Path to a service account key of a service account that permits the app to interact with Compute Engine. 
 
 ## Supporting a custom OU structure
 
 By default, the app places computer accounts into the organizational unit `CN=<project_id>,<PROJECTS_DN>`. 
-To support a custom OU structure, you can configure the app so that VMs can specify the OU path 
+To support a custom OU structure, you can configure the app so that VMs can specify the OU 
 their corresponding computer account should be placed in. To enable the _custom OU_ feature, you must
 specify an additional environment variable when deploying the app:
 
-* `CUSTOM_OU_ROOT_DN`: Distinguished name of an OU that serve as root OU. 
+* `CUSTOM_OU_ROOT_DN`: Distinguished name of an OU that serves as root OU. 
 
 When enable the _custom OU_ feature, you must add a metadata key `target_ou` (case insensitive) to each
-VM instances that you cant to join to Active Directory. The computer account will then be placed
+VM instances that you join to Active Directory. The computer account is then be placed
 in the organizational unit `CN=<project_id>,<target_ou>`. VM instances that lack a `target_ou` metadata
 key will not be joined to Active Directory.
 
-The `target_ou` cannot be updated once a VM instance has been joined to Active Directory. If you specified the wrong OU, do the following:
-* Manually move the computer object to the new OU. You can also update the VM metadata for future reference, but the metadata will not be inspected after the computer has already been created.
-* If necessary, move the groups to the new OU. 
+The OU cannot be updated once a VM instance has been joined to Active Directory. If you specified the wrong `target_ou` value, do the following:
+* Manually move the computer object to the new OU. 
+* Optionally, update the VM metadata for future reference. The metadata will not be inspected after the computer has already been created.
+* If necessary, move the computer group to the new OU. 
 * If you created a managed instance group (MIG) with the wrong `target_ou` value, create a new instance template, update the MIG, and then manually delete the old group in AD.  
 
 
