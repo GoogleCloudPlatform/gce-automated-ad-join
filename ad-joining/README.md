@@ -29,8 +29,9 @@ The `register-computer` app obtains its configuration from the environment and s
 * `SECRET_PROJECT_ID` (required unless `AD_PASSWORD` is used): Project ID under which the AD credentials have been stored in Secret Manager.
 * `SECRET_NAME` (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
 * `SECRET_VERSION` (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager.
-* `PROJECTS_DN`: Distinguished name of the OU containing the individual project OUs.
-* `FUNCTION_IDENTITY`: Email address of the app's service account.
+* `PROJECTS_DN`: (required) Distinguished name of the OU containing the individual project OUs.
+* `FUNCTION_IDENTITY`: (required) Email address of the app's service account.
+* `LOGGING_LEVEL` (optional): Logging level for log messages. See [Logging Levels](https://docs.python.org/3/library/logging.html#levels) for acceptable values. The default logging level is set to INFO.
 
 If you run the app locally, you will need to pass the following, additional environment variables to simulate a
 Cloud Run environment:
@@ -46,9 +47,9 @@ specify an additional environment variable when deploying the app:
 
 * `CUSTOM_OU_ROOT_DN`: Distinguished name of an OU that serves as root OU. 
 
-When enable the _custom OU_ feature, you must add a metadata key `target_ou` (case insensitive) to each
-VM instances that you join to Active Directory. The computer account is then be placed
-in the organizational unit `CN=<project_id>,<target_ou>`. VM instances that lack a `target_ou` metadata
+When the _custom OU_ feature is enabled, you must add a metadata key `target_ou` (case insensitive) to each
+VM instance that you join to Active Directory. The computer account is then placed
+in the organizational unit `<target_ou>`. VM instances that lack a `target_ou` metadata
 key will not be joined to Active Directory.
 
 The OU cannot be updated once a VM instance has been joined to Active Directory. If you specified the wrong `target_ou` value, do the following:
