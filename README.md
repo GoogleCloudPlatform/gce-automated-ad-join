@@ -5,7 +5,7 @@ deployment tasks on Google Cloud.
 
 The repository is organized as follows:
 
-* [`ad-joining`](ad-joining/) contains a Cloud Function that enables you to [automatically join VM instances 
+* [`ad-joining`](ad-joining/) contains a Cloud Run app that enables you to [automatically join VM instances 
   to an Active Directory domain](https://cloud.google.com/solutions/configuring-active-directory-for-vms-to-automatically-join-the-domain).
 
 
