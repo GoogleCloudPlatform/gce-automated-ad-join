@@ -58,7 +58,7 @@ steps:
   - --region=$_SERVERLESS_REGION
   - --platform=managed
   - --allow-unauthenticated
-  - --service-account=register-computer-app@$PROJECT_ID.iam.gserviceaccount.com
+  - --service-account=$_SERVICE_ACCOUNT_EMAIL
   - --set-env-vars=AD_DOMAIN=$_AD_DOMAIN 
   - --set-env-vars=AD_USERNAME=$_AD_NETBIOS_DOMAIN\register-computer 
   - --set-env-vars=SECRET_PROJECT_ID=$PROJECT_ID 
