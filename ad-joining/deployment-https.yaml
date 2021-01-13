@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: ad-join-service
+  name: ad-join-service
+  namespace: ad-join
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ad-join-service
+  template:
+    metadata:
+      labels:
+        app: ad-join-service
+    spec:
+      containers:
+      - image: gcr.io/$PROJECT_ID/register-computer:latest
+        imagePullPolicy: Always
+        name: ad-join-service
+        ports:
+           - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            port: 8080
+            path: /hc
+            scheme: HTTP
+        envFrom:
+        - configMapRef:
+            name: register-computer-config
+      serviceAccountName: register-computer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ad-join-service
+  namespace: ad-join
+  labels:
+    app: ad-join-service
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+spec:
+  ports:
+    - port: 80
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app: ad-join-service
+  type: NodePort
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: ilb-ad-join-service
+  namespace: ad-join
+  annotations:
+    kubernetes.io/ingress.class: "gce-internal"
+    ingress.gcp.kubernetes.io/pre-shared-cert: "ingress-cert"
+    kubernetes.io/ingress.allow-http: "false"
+spec:
+  rules:
+  - host: [DOMAIN_NAME]
+    http:
+      paths:
+      - backend:
+          serviceName: ad-join-service
+          servicePort: 80

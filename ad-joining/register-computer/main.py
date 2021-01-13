@@ -28,9 +28,9 @@ import uuid
 import string
 import time
 
-import google.cloud.kms_v1
 import google.auth
 import googleapiclient.discovery
+from google.cloud import secretmanager
 
 import gcp.auth
 import gcp.project
@@ -40,10 +40,12 @@ import kerberos.password
 import werkzeug
 
 from hashlib import blake2b
+from flask import Flask, request
 
 # Silence "file_cache" warnings
 logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
-logging.getLogger().setLevel(logging.INFO)
+logging_level = os.getenv("LOGGING_LEVEL", logging.INFO)
+logging.getLogger().setLevel(logging_level)
 
 MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 10
@@ -54,6 +56,9 @@ PASSWORD_RESET_RETRIES = 10
 
 class ConfigurationException(Exception):
     pass
+
+def __get_request_scheme(request):
+    return request.headers.get("X-Forwarded-Proto", request.scheme)
 
 def __read_required_setting(key):
     if not key in os.environ:
@@ -67,10 +72,21 @@ def __read_ad_password():
         # Cleartext password provided (useful for testing).
         return os.environ["AD_PASSWORD"]
     else:
-        # Decrypt password cipher using the Cloud KMS key provided.
-        return google.cloud.kms_v1.KeyManagementServiceClient().decrypt(
-            name=__read_required_setting("CLOUDKMS_KEY"),
-            ciphertext=base64.b64decode(__read_required_setting("AD_PASSWORD_CIPHER"))).plaintext.decode("utf-8").strip()
+        client = secretmanager.SecretManagerServiceClient()
+        
+        # If the Service Account does not have permissions
+        # to access the secret an Exception will be raised
+        try:        
+            name = client.secret_version_path(
+                    __read_required_setting("SECRET_PROJECT_ID"), 
+                    __read_required_setting("SECRET_NAME"), 
+                    __read_required_setting("SECRET_VERSION"))
+            response = client.access_secret_version(request={"name": name})
+            return response.payload.data.decode("UTF-8")
+        except Exception as e:
+            # If neither AD_PASSWORD nor Secret Manager hold the password rethrow exception
+            logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
+            raise e
 
 def __connect_to_activedirectory():
     domain = __read_required_setting("AD_DOMAIN")
@@ -101,27 +117,25 @@ def __connect_to_activedirectory():
 def __generate_password(length=40):
     return str(uuid.uuid4()) + "-" + str(uuid.uuid4())
 
-def __get_managed_instance_group_for_instance(gce_instance):
-    metadata_created_by = None
+def __get_managed_instance_group_for_instance(gce_instance):    
     if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
         metadata_created_by = next((x for x in gce_instance["metadata"]["items"] if x["key"] == "created-by"), None)
 
-    if (metadata_created_by and "instanceGroupManagers" in metadata_created_by["value"]):
-        # https://cloud.google.com/compute/docs/instance-groups/getting-info-about-migs#checking_if_a_vm_instance_is_part_of_a_mig
-        # The "created-by" metadata value is in the format of either:
-        # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
-        # or
-        # # projects/[number]/regions/[region]/instanceGroupManagers/[mig-name]
-        # Return the mig-name, and the region/zone it belongs to
-        mig_info = {}
-        mig_id_parts = (metadata_created_by["value"]).split('/')
-        mig_info["zone"] = mig_id_parts[3] if mig_id_parts[2] == "zones" else None
-        mig_info["region"] = mig_id_parts[3] if mig_id_parts[2] == "regions" else None
-        mig_info["name"] = mig_id_parts[5]
+        if (metadata_created_by and "instanceGroupManagers" in metadata_created_by["value"]):
+            # https://cloud.google.com/compute/docs/instance-groups/getting-info-about-migs#checking_if_a_vm_instance_is_part_of_a_mig
+            # The "created-by" metadata value is in the format of either:
+            # projects/[number]/zones/[zone]/instanceGroupManagers/[mig-name]
+            # or
+            # # projects/[number]/regions/[region]/instanceGroupManagers/[mig-name]
+            # Return the mig-name, and the region/zone it belongs to
+            mig_info = {}
+            mig_id_parts = (metadata_created_by["value"]).split('/')
+            mig_info["zone"] = mig_id_parts[3] if mig_id_parts[2] == "zones" else None
+            mig_info["region"] = mig_id_parts[3] if mig_id_parts[2] == "regions" else None
+            mig_info["name"] = mig_id_parts[5]
 
-        return mig_info
-    else:
-        return
+            return mig_info
+    return
 
 def __is_gke_nodepool_member(gce_instance):
     return ("labels" in gce_instance.keys() and 'goog-gke-node' in gce_instance["labels"])
@@ -165,10 +179,70 @@ def __shorten_computer_name(computer_name, gce_instance):
         new_computer_name = ("%s-%s" % (instance_name_prefix, instance_name_hash))
     return new_computer_name
 
+
+def __get_computer_ou_from_metadata(gce_instance):
+    gce_instance_name = gce_instance["name"]
+    logging.debug("Checking instance '%s' for target OU in metadata", gce_instance_name)
+
+    if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
+        target_ou = next((x for x in gce_instance["metadata"]["items"] if x["key"].lower() == "target_ou"), None)
+        if target_ou:
+            return target_ou["value"]
+        else:
+            logging.info("Instance '%s' metadata is missing a custom OU" % gce_instance_name)
+    else:
+        logging.info("Instance '%s' does not have metadata" % gce_instance_name)
+    
+    return
+
+def __is_custom_ou_valid(ad_connection, custom_ou_dn):
+    try:
+        matches = ad_connection.find_ou(custom_ou_dn, includeDescendants=False)
+        if len(matches) == 0:
+            logging.info("No OU with name '%s' found in directory" % custom_ou_dn)
+        elif len(matches) > 1:
+            logging.info("Found multiple OUs with name '%s' in directory" % custom_ou_dn)
+        else:
+            return True
+    except Exception as e:
+        logging.exception("Looking up OU '%s' in Active Directory failed: '%s'" % (custom_ou_dn, str(e)))
+        raise
+
+    return False
+
+def __get_custom_ou_for_computer(ad_connection, gce_instance, instance_name, project_id):
+    computer_ou = None
+    # The service is configured to use custom OUs. Make sure the root OU is valid
+    custom_ou_root = __read_required_setting("CUSTOM_OU_ROOT_DN")
+    logging.debug("Service is configured to use custom OU '%s'" % custom_ou_root)
+    if __is_custom_ou_valid(ad_connection, custom_ou_root):
+        # Locate the custom OU for the computer and make sure it is valid
+        custom_target_ou = __get_computer_ou_from_metadata(gce_instance)
+        if custom_target_ou and __is_custom_ou_valid(ad_connection, custom_target_ou):
+            logging.debug("Found custom OU '%s' for compute instance '%s' in project '%s'" 
+                % (custom_target_ou, instance_name, project_id))
+
+            # Verify the OU provided for the computer is a descendant of the custom root OU
+            if custom_target_ou.lower().endswith(custom_ou_root.lower()):
+                computer_ou = custom_target_ou
+                logging.info("Computer will be created in a custom OU: '%s'" % custom_target_ou)
+            else:
+                logging.error("The OU '%s' provided by the computer instance '%s' is not a descendant of the root OU '%s'" 
+                    % (custom_target_ou, instance_name, custom_ou_root))
+        else:
+            logging.error("The OU '%s' provided by the computer instance '%s' is either missing or not valid" 
+                % (custom_target_ou, instance_name))
+    else:
+        logging.error("Custom OU root '%s' is not valid" % custom_ou_root)
+    
+    return computer_ou
+
 #------------------------------------------------------------------------------
 # HTTP endpoints.
 #------------------------------------------------------------------------------
 
+HTTP_OK = 200
+HTTP_BAD_REQUEST = 400
 HTTP_BAD_METHOD = 405
 HTTP_AUTHENTICATION_REQUIRED = 401
 HTTP_ACCESS_DENIED = 403
@@ -185,7 +259,9 @@ def __serve_join_script(request):
     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "join.ps1"), 'r') as file:
         join_script = file.read().replace(
             "%domain%",
-            request.host)
+            request.host).replace(
+            "%scheme%",
+            __get_request_scheme(request))
 
         return flask.Response(join_script, mimetype='text/plain')
 
@@ -206,7 +282,7 @@ def __register_computer(request):
     try:
         auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
             request.headers[headerName],
-            "https://%s/" % request.host)
+            "%s://%s/" % (__get_request_scheme(request), request.host))
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
         return flask.abort(HTTP_ACCESS_DENIED)
@@ -229,6 +305,7 @@ def __register_computer(request):
     # # project id. The existence of such a OU implies that the owner of the
     # domain is OK with joining machines from that project.
     try:
+        
         matches = ad_connection.find_ou(__read_required_setting("PROJECTS_DN"), auth_info.get_project_id())
         if len(matches) == 0:
             logging.error("No OU with name '%s' found in directory" % auth_info.get_project_id())
@@ -239,8 +316,8 @@ def __register_computer(request):
         else:
             # There is an OU. That means the request is fine and we also know which
             # OU to create a computer account in.
-            computer_ou = matches[0].get_dn()
-            logging.info("Found OU '%s' to create computer account in, authorized (1/2)" % computer_ou)
+            project_ou = matches[0].get_dn()
+            logging.info("Found OU '%s', authorized (1/2)" % project_ou)
     except Exception as e:
         logging.exception("Looking up OU '%s' in Active Directory failed" % auth_info.get_project_id())
         return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
@@ -273,6 +350,18 @@ def __register_computer(request):
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
         return flask.abort(HTTP_ACCESS_DENIED)
     
+    # If custom OU is being used, then extract it from the compute instance 
+    if "CUSTOM_OU_ROOT_DN" in os.environ:
+        try:
+            computer_ou = __get_custom_ou_for_computer(ad_connection, gce_instance, auth_info.get_instance_name(), auth_info.get_project_id())
+            if not computer_ou:
+                return flask.abort(HTTP_BAD_REQUEST)
+        except Exception:
+            return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
+    else:
+        computer_ou = project_ou
+        logging.info("Computer will be created in a project OU: '%s'" % computer_ou)
+
     original_computer_name = computer_name
 
     if len(computer_name) > MAX_NETBIOS_COMPUTER_NAME_LENGTH:
@@ -309,7 +398,7 @@ def __register_computer(request):
                 computer_accounts = ad_connection.find_computer(computer_account_dn)
 
                 computer_account = computer_accounts[0]
-                # Validate this is the same project, instance name, and zone
+                # Validate this is the same project and instance name
                 is_same_computer = (computer_account.get_instance_name() == auth_info.get_instance_name() 
                     and computer_account.get_project_id() == auth_info.get_project_id())
 
@@ -330,11 +419,12 @@ def __register_computer(request):
                     
                     new_computer_account = False
                 else:
-                    logging.error("Account '%s' already exists in the project, but has different attributes" % (computer_name))
+                    logging.error("Account '%s' already exists in OU '%s' with different attributes. Current attributes are (instance='%s', project='%s'), and requested attributes are (instance='%s', project='%s')" 
+                        % (computer_name, computer_ou, computer_account.get_instance_name(), computer_account.get_project_id(), auth_info.get_instance_name(), auth_info.get_project_id()))
                     flask.abort(HTTP_CONFLICT)
             except ad.domain.NoSuchObjectException as e:
-                logging.error("Account '%s' already exists, but cannot be found in project '%s'. It probably belongs to a different project." % 
-                    (computer_name, auth_info.get_project_id()))
+                logging.error("Account '%s' from project '%s' already exists, but cannot be found in OU '%s'. It probably belongs to a different project or is configured to use a different OU" % 
+                    (computer_name, auth_info.get_project_id(), computer_ou))
                 flask.abort(HTTP_CONFLICT)
 
         # Check if the instance is part of a Managed Instance Group (MIG)
@@ -344,7 +434,7 @@ def __register_computer(request):
         # New instances of MIGs are added to AD groups named after the MIGs.
         # Having an AD group with the MIG's computers is useful for managing
         # Access control in the domain
-        if new_computer_account and mig_name:            
+        if new_computer_account and mig_name:
             # Add the computer to an AD group containing all the MIG's computers
             # This is only relevant to newly added computers
             # as previously added computers were already added to the group
@@ -369,6 +459,8 @@ def __register_computer(request):
                     # 2. Group by this name already exists in a different project
                     mig_ad_group = ad_connection.find_group(mig_dn)
                     if len(mig_ad_group) == 0:
+                        # This error should raise a flag, as AD creates each group with a unique SAM account name, therefore
+                        # we shouldn't get groups with the same ID in other OUs.
                         logging.error("Failed adding AD Group for MIG '%s' in project '%s'. There is probably a MIG by this name in another OU" 
                             % (mig_name, auth_info.get_project_id()))
                         flask.abort(HTTP_CONFLICT)
@@ -454,7 +546,7 @@ def __cleanup_computers(request):
     try:
         auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
             request.headers[headerName],
-            "https://%s/" % request.host,
+            "%s://%s/" % (__get_request_scheme(request), request.host),
             False)
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
@@ -480,20 +572,18 @@ def __cleanup_computers(request):
     # a VM instance still exists, we therefore need to be careful in distinguishing
     # between the cases (1) the VM does not exist and (2) the VM is inaccessible.
 
-    # Iterate over all OUs underneath the projects OU.
+    # Iterate over all OUs underneath the projects OU or the custom OU, if specified
     projects_dn = __read_required_setting("PROJECTS_DN")
+    root_dn = os.getenv("CUSTOM_OU_ROOT_DN", projects_dn)
+    logging.info("Starting cleanup in OU '%s'" % root_dn)
+    
     result = {}
-    for ou in ad_connection.find_ou(projects_dn):
+    for ou in ad_connection.find_ou(root_dn):
         try:            
-            project_id = ou.get_name()
-
-            # Look up list of computer acconts and the zones they are located in.
+            ou_name = ou.get_dn()
+            # Look up list of computer accounts in the OU
             computer_accounts = ad_connection.find_computer(ou.get_dn())
-            zones = set([c.get_zone() for c in computer_accounts if c.get_zone() != None])
 
-            # Try to obtain the full list of instances in this project. This might
-            # fail if we have lost access to the project.
-            instance_names = gcp.project.Project(project_id).get_instance_names(zones)            
             output = {
                 "computers" : {},
                 "groups" : {}
@@ -501,27 +591,26 @@ def __cleanup_computers(request):
             accounts_deleted = 0
             accounts_failed = 0
 
-            logging.info("Checking for stale computer accounts in project '%s'" % project_id)
+            logging.info("Checking for stale computer accounts in OU '%s'" % ou_name)
             for computer in computer_accounts:
-                if not computer.get_instance_name():
-                    logging.info("Ignoring computer account '%s' as it lacks for GCE annotations" % computer.get_name())
+                if not computer.get_instance_name() or not computer.get_project_id() or not computer.get_project_id():
+                    logging.debug("Ignoring computer account '%s' as it lacks for GCE annotations" % computer.get_name())
 
-                elif computer.get_instance_name() in instance_names:
+                elif gcp.project.Project(computer.get_project_id()).get_instance(computer.get_instance_name(), computer.get_zone()):
                     # VM instance still exists, fine.
+                    logging.debug("Skipping computer account '%s' as it has a matching instance '%s' in project '%s'" 
+                        % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
                     pass
-
-                elif computer.get_project_id() != project_id:
-                    logging.warning("Computer account '%s' is misplaced - located in '%s', but should be in '%s' OU" %
-                        (computer.get_name(), project_id, computer.get_project_id()))
-
                 else:
-                    logging.info("Computer account '%s' (project '%s') is stale" % (computer.get_name(), project_id))
+                    logging.info("Computer account '%s' (instance '%s' in project '%s') is stale" 
+                        % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
                     try:
                         ad_connection.delete_computer(computer.get_dn())
                         accounts_deleted += 1
 
                     except Exception as e:
-                        logging.error("Failed to delete stale compute account '%s' (project '%s')" % (computer.get_name(), project_id))
+                        logging.error("Failed to delete stale compute account '%s' (instance '%s' in project '%s')" 
+                            % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
                         accounts_failed += 1
 
             # Gather metrics for response.
@@ -531,41 +620,32 @@ def __cleanup_computers(request):
                 "accounts_failed": accounts_failed
             }
 
-            logging.info("Done checking for stale computer accounts in project "+
+            logging.info("Done checking for stale computer accounts in OU "+
                 "'%s' - %d accounts deleted, %d failed to be deleted" %
-                (project_id, accounts_deleted, accounts_failed))
+                (ou_name, accounts_deleted, accounts_failed))
 
-            # After deleting stale computers, look for empty groups.
-            # Empty group means either its MIG has no computers (scaled to 0), 
-            # or the MIG was deleted
-            mig_ad_groups = ad_connection.find_group(ou.get_dn())            
-            zones = set([g.get_zone() for g in mig_ad_groups if g.get_zone() != None])
-            regions = set([g.get_region() for g in mig_ad_groups if g.get_region() != None])
-            mig_names = gcp.project.Project(project_id).get_managed_instance_group_names(zones, regions)
-
+            # After deleting stale computers, look for groups whose MIGs were removed
+            mig_ad_groups = ad_connection.find_group(ou.get_dn())
             accounts_deleted = 0
             accounts_failed = 0
-            logging.info("Checking for stale managed instance groups in project '%s'" % project_id)
+            logging.info("Checking for stale managed instance groups in OU '%s'" % ou_name)
             for mig_ad_group in mig_ad_groups:                
-                if not mig_ad_group.get_project_id():
-                    logging.info("Ignoring group '%s' as it lacks for GCE annotations" % mig_ad_group.get_name())
+                if not mig_ad_group.get_project_id() or (not mig_ad_group.get_zone() and not mig_ad_group.get_region()):
+                    logging.debug("Ignoring group '%s' as it lacks for GCE annotations" % mig_ad_group.get_name())
 
-                elif mig_ad_group.get_name() in mig_names:
+                elif gcp.project.Project(mig_ad_group.get_project_id()).get_managed_instance_group(mig_ad_group.get_name(), mig_ad_group.get_zone(), mig_ad_group.get_region()):
                     # MIG still exists, fine.
+                    logging.debug("Skipping group '%s' as it has a matching managed instance group in project '%s'" 
+                        % (mig_ad_group.get_name(), mig_ad_group.get_project_id()))
                     pass
-
-                elif mig_ad_group.get_project_id() != project_id:
-                    logging.warning("Group '%s' is misplaced - located in '%s', but should be in '%s' OU" %
-                        (mig_ad_group.get_name(), project_id, mig_ad_group.get_project_id()))
-
                 else:
-                    logging.info("Group '%s' (project '%s') is stale" % (mig_ad_group.get_name(), project_id))
+                    logging.info("Group '%s' (project '%s') is stale" % (mig_ad_group.get_name(), mig_ad_group.get_project_id()))
                     try:
                         ad_connection.delete_group(mig_ad_group.get_dn())
                         accounts_deleted += 1
 
                     except Exception as e:
-                        logging.error("Failed to delete stale group '%s' (project '%s')" % (mig_ad_group.get_name(), project_id))
+                        logging.error("Failed to delete stale group '%s' (project '%s')" % (mig_ad_group.get_name(), mig_ad_group.get_project_id()))
                         accounts_failed += 1
 
             # Gather metrics for response.
@@ -575,13 +655,13 @@ def __cleanup_computers(request):
                 "accounts_failed": accounts_failed
             }
 
-            result[project_id] = output
-            logging.info("Done checking for stale groups in project "+
+            result[ou_name] = output
+            logging.info("Done checking for stale groups in OU "+
                 "'%s' - %d group deleted, %d failed to be deleted" %
-                (project_id, accounts_deleted, accounts_failed))
+                (ou_name, accounts_deleted, accounts_failed))
         except Exception as e:
             # We cannot access this project, ignore.
-            logging.warning("Skipping project '%s' as it is inaccessible: %s" % (project_id, str(e)))
+            logging.warning("Skipping OU '%s' as it is inaccessible: %s" % (ou_name, str(e)))
 
     return flask.jsonify(result)
 
@@ -593,7 +673,10 @@ def register_computer(request):
     """
         Cloud Functions entry point.
     """
-    if request.path == "/cleanup" and request.method == "POST":
+    if request.path == "/hc" and request.method == "GET":
+        # Health Check
+        return flask.Response(status=HTTP_OK)
+    elif request.path == "/cleanup" and request.method == "POST":
         return __cleanup_computers(request)
     elif request.path == "/" and request.method == "GET":
         return __serve_join_script(request)
@@ -602,17 +685,15 @@ def register_computer(request):
     else:
         return flask.abort(HTTP_BAD_METHOD)
 
+app = Flask(__name__)
+app.debug = False
+
+@app.route("/", methods=['GET', 'POST'])
+@app.route("/cleanup", methods=['GET', 'POST'])
+@app.route("/hc", methods=['GET'])
+
+def index():
+    return register_computer(request)
 
 if __name__ == "__main__":
-    # Local testing/debugging only. This code is not run in Cloud Functions.
-    from flask import Flask, request
-
-    app = Flask(__name__)
-    app.debug=False
-
-    @app.route("/", methods=['GET', 'POST'])
-    @app.route("/cleanup", methods=['GET', 'POST'])
-    def index():
-        return register_computer(request)
-
     app.run()
