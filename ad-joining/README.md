@@ -29,7 +29,6 @@ The `register-computer` app obtains its configuration from the environment and s
 * `SECRET_PROJECT_ID` (required unless `AD_PASSWORD` is used): Project ID under which the AD credentials have been stored in Secret Manager.
 * `SECRET_NAME` (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
 * `SECRET_VERSION` (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager. Can be set to `latest`.
-* `PROJECTS_DN`: (required) Distinguished name of the OU containing the individual project OUs.
 * `FUNCTION_IDENTITY`: (required) Email address of the app's service account.
 * `LOGGING_LEVEL` (optional): Logging level for log messages. See [Logging Levels](https://docs.python.org/3/library/logging.html#levels) for acceptable values. The default logging level is set to INFO.
 
@@ -38,26 +37,26 @@ Cloud Run environment:
 
 * `GOOGLE_APPLICATION_CREDENTIALS` (required for testing): Path to a service account key of a service account that permits the app to interact with Compute Engine. 
 
-## Supporting a custom OU structure
+## Deciding on the OU structure for joined computers
 
-By default, the app places computer accounts into the organizational unit `CN=<project_id>,<PROJECTS_DN>`. 
-To support a custom OU structure, you can configure the app so that VMs can specify the OU 
-their corresponding computer account should be placed in. To enable the _custom OU_ feature, you must
-specify an additional environment variable when deploying the app:
+Set one of the following environment variables (if both or none are set, the app will fail):
 
-* `CUSTOM_OU_ROOT_DN`: Distinguished name of an OU that serves as root OU. 
+* `PROJECTS_DN`: Distinguished name of the OU containing the individual project OUs.
+The app places computer accounts into the organizational unit `CN=<project_id>,<PROJECTS_DN>`.
+The app does not create the OU. Make sure you create the OU for the target project, before joining its instances.
+VM instances whose project does not have an OU `CN=<project_id>,<PROJECTS_DN>` will not be joined to Active Directory.
 
-When the _custom OU_ feature is enabled, you must add a metadata key `target_ou` (case insensitive) to each
-VM instance that you join to Active Directory. The computer account is then placed
-in the organizational unit `<target_ou>`. VM instances that lack a `target_ou` metadata
-key will not be joined to Active Directory.
+* `CUSTOM_OU_ROOT_DN`: Distinguished name of an OU that serves as root OU.
+The app places computer accounts into organizational units that are descendants of the `<CUSTOM_OU_ROOT_DN>` OU.
+Each joined VM instance must add a metadata key `target_ou` (case insensitive) and set it to
+an OU (fully qualified) that is a descendant of the `<CUSTOM_OU_ROOT_DN>` OU.
+VM instances that lack a `target_ou` metadata key will not be joined to Active Directory.
 
-The OU cannot be updated once a VM instance has been joined to Active Directory. If you specified the wrong `target_ou` value, do the following:
-* Manually move the computer object to the new OU. 
-* Optionally, update the VM metadata for future reference. The metadata will not be inspected after the computer has already been created.
-* If necessary, move the computer group to the new OU. 
-* If you created a managed instance group (MIG) with the wrong `target_ou` value, create a new instance template, update the MIG, and then manually delete the old group in AD.  
-
+   The OU cannot be updated once a VM instance has been joined to Active Directory. If you specified the wrong `target_ou` value, do the following:
+   * Manually move the computer object to the new OU. 
+   * Optionally, update the VM metadata for future reference. The metadata will not be inspected after the computer has already been created.
+   * If necessary, move the computer group to the new OU. 
+   * If you created a managed instance group (MIG) with the wrong `target_ou` value, create a new instance template, update the MIG, and then manually delete the old group in AD.  
 
 ## Testing locally
 
