@@ -432,11 +432,11 @@ def __register_computer(request):
                 else:
                     logging.error("Account '%s' already exists in OU '%s' with different attributes. Current attributes are (instance='%s', project='%s'), and requested attributes are (instance='%s', project='%s')" 
                         % (computer_name, computer_ou, computer_account.get_instance_name(), computer_account.get_project_id(), auth_info.get_instance_name(), auth_info.get_project_id()))
-                    flask.abort(HTTP_CONFLICT)
+                    flask.abort(HTTP_CONFLICT, description="SIMILAR_COMPUTER_ACCOUNT_EXISTS_IN_AD")
             except ad.domain.NoSuchObjectException as e:
                 logging.error("Account '%s' from project '%s' already exists, but cannot be found in OU '%s'. It probably belongs to a different project or is configured to use a different OU" % 
                     (computer_name, auth_info.get_project_id(), computer_ou))
-                flask.abort(HTTP_CONFLICT)
+                flask.abort(HTTP_CONFLICT, description="SIMILAR_COMPUTER_ACCOUNT_EXISTS_IN_AD")
 
         # Check if the instance is part of a Managed Instance Group (MIG)
         mig_info = __get_managed_instance_group_for_instance(gce_instance)
@@ -474,7 +474,7 @@ def __register_computer(request):
                         # we shouldn't get groups with the same ID in other OUs.
                         logging.error("Failed adding AD Group for MIG '%s' in project '%s'. There is probably a MIG by this name in another OU" 
                             % (mig_name, auth_info.get_project_id()))
-                        flask.abort(HTTP_CONFLICT)
+                        flask.abort(HTTP_CONFLICT, "GROUP_ALREADY_EXISTS_IN_AD")
                     else: 
                         # Group added in the same project, safe to proceed
                         logging.info("AD Group '%s' found while creating. Assuming it was added by another computer joining in parallel" % (mig_name))                
