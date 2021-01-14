@@ -214,7 +214,7 @@ def __get_custom_ou_for_computer(ad_connection, gce_instance, instance_name, pro
     computer_ou = None
     # The service is configured to use custom OUs. Make sure the root OU is valid
     custom_ou_root = __read_required_setting("CUSTOM_OU_ROOT_DN")
-    logging.debug("Service is configured to use custom OU '%s'" % custom_ou_root)
+    logging.debug("Service is configured to use custom OU root '%s'" % custom_ou_root)
     if __is_custom_ou_valid(ad_connection, custom_ou_root):
         # Locate the custom OU for the computer and make sure it is valid
         custom_target_ou = __get_computer_ou_from_metadata(gce_instance)
@@ -225,7 +225,6 @@ def __get_custom_ou_for_computer(ad_connection, gce_instance, instance_name, pro
             # Verify the OU provided for the computer is a descendant of the custom root OU
             if custom_target_ou.lower().endswith(custom_ou_root.lower()):
                 computer_ou = custom_target_ou
-                logging.info("Computer will be created in a custom OU: '%s'" % custom_target_ou)
             else:
                 logging.error("The OU '%s' provided by the computer instance '%s' is not a descendant of the root OU '%s'" 
                     % (custom_target_ou, instance_name, custom_ou_root))
@@ -274,7 +273,7 @@ def __register_computer(request):
     headerName = "Authorization"
     if not headerName in request.headers:
         logging.exception("Authentication missing")
-        return flask.abort(HTTP_AUTHENTICATION_REQUIRED)
+        return flask.abort(HTTP_AUTHENTICATION_REQUIRED, description="CALLER_AUTHENTICATION_MISSING")
 
     # Authenticate the request.
     # Expect the host as audience so that multiple deployments of this
@@ -285,44 +284,23 @@ def __register_computer(request):
             "%s://%s/" % (__get_request_scheme(request), request.host))
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
-        return flask.abort(HTTP_ACCESS_DENIED)
+        return flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
 
     # Connect to Active Directory so that we can authorize the request.
     try:
         ad_connection = __connect_to_activedirectory()
     except Exception as e:
         logging.exception("Connecting to Active Directory failed")
-        return flask.abort(HTTP_BAD_GATEWAY)
+        return flask.abort(HTTP_BAD_GATEWAY, description="CONNECT_TO_AD_FAILED")
 
     # Authorize the request. This entails two checks:
-    # (1) Check that AD allows the project to join machines. This is to prevent
-    #     rogue/unauthorized projects from joining machines.
-    # (2) Check that the project allows AD to manage computer accounts for it.
+    # (1) Check that the project allows AD to manage computer accounts for it.
     #     This is to prevent users from joining machines without the project
     #     owner authorizing it.
+    # (2) Check that AD allows the project to join machines. This is to prevent
+    #     rogue/unauthorized projects from joining machines.
 
-    # Authorize, Part 1: Check that there is a OU with the same name as the
-    # # project id. The existence of such a OU implies that the owner of the
-    # domain is OK with joining machines from that project.
-    try:
-        
-        matches = ad_connection.find_ou(__read_required_setting("PROJECTS_DN"), auth_info.get_project_id())
-        if len(matches) == 0:
-            logging.error("No OU with name '%s' found in directory" % auth_info.get_project_id())
-            return flask.abort(HTTP_ACCESS_DENIED)
-        elif len(matches) > 1:
-            logging.error("Found multiple OUs with name '%s' in directory" % auth_info.get_project_id())
-            return flask.abort(HTTP_ACCESS_DENIED)
-        else:
-            # There is an OU. That means the request is fine and we also know which
-            # OU to create a computer account in.
-            project_ou = matches[0].get_dn()
-            logging.info("Found OU '%s', authorized (1/2)" % project_ou)
-    except Exception as e:
-        logging.exception("Looking up OU '%s' in Active Directory failed" % auth_info.get_project_id())
-        return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
-
-    # Authorize, Part 2: Check that we have read access to the project's VM.
+    # Authorize, Part 1: Check that we have read access to the project's VM.
     # Read access implies that a project owner or security admin of the project
     # is OK with us managing computer accounts for the project's machines.
     #
@@ -344,23 +322,56 @@ def __register_computer(request):
         else:
             computer_name = auth_info.get_instance_name()
 
-        logging.info("Successfully read GCE instance data for '%s' (hostname: '%s'), authorized (2/2)" %
+        logging.info("Successfully read GCE instance data for '%s' (hostname: '%s'), authorized (1/2)" %
             (auth_info.get_instance_name(), computer_name))
     except Exception as e:
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
-        return flask.abort(HTTP_ACCESS_DENIED)
-    
-    # If custom OU is being used, then extract it from the compute instance 
-    if "CUSTOM_OU_ROOT_DN" in os.environ:
+        return flask.abort(HTTP_ACCESS_DENIED, description="PROJECT_ACCESS_FAILED")
+
+    # Authorize, Part 2: Check that there is a OU with the same name as the
+    # project id. The existence of such a OU implies that the owner of the
+    # domain is OK with joining machines from that project.
+    # This check is ignored if the service is configured to use a custom OU.
+    # For custom OU, users will need to use an external way to make sure rogue/unauthorized
+    # projects cannot access the service, for example, by using a Shared VPC with Service projects.
+    computer_ou = None
+    if "PROJECTS_DN" in os.environ and "CUSTOM_OU_ROOT_DN" in os.environ:
+        logging.error("Cannot have both PROJECTS_DN and CUSTOM_OU_ROOT_DN environment variables configured. Please make sure only one is present.")
+        return flask.abort(HTTP_CONFLICT, description="BAD_ROOT_OU_CONFIGURATION")
+    elif "PROJECTS_DN" in os.environ:
         try:
-            computer_ou = __get_custom_ou_for_computer(ad_connection, gce_instance, auth_info.get_instance_name(), auth_info.get_project_id())
-            if not computer_ou:
-                return flask.abort(HTTP_BAD_REQUEST)
+            matches = ad_connection.find_ou(__read_required_setting("PROJECTS_DN"), auth_info.get_project_id())
+            if len(matches) == 0:
+                logging.error("No OU with name '%s' found in directory" % auth_info.get_project_id())
+                return flask.abort(HTTP_ACCESS_DENIED, description="MISSING_PROJECT_OU")
+            elif len(matches) > 1:
+                logging.error("Found multiple OUs with name '%s' in directory" % auth_info.get_project_id())
+                return flask.abort(HTTP_ACCESS_DENIED, description="MULTIPLE_PROJECT_OUS")
+            else:
+                # There is an OU. That means the request is fine and we also know which
+                # OU to create a computer account in.
+                project_ou = matches[0].get_dn()                
+                logging.info("Found OU '%s', authorized (2/2)" % project_ou)
+                logging.info("Computer will be created in a project OU: '%s'" % project_ou)
+                computer_ou = project_ou
+        except Exception as e:
+            logging.exception("Looking up OU '%s' in Active Directory failed" % auth_info.get_project_id())
+            return flask.abort(HTTP_INTERNAL_SERVER_ERROR, description="PROJECT_OU_UNKNOWN_ERROR")
+    # If custom OU is being used, then extract it from the compute instance
+    elif "CUSTOM_OU_ROOT_DN" in os.environ:
+        try:
+            custom_ou = __get_custom_ou_for_computer(ad_connection, gce_instance, auth_info.get_instance_name(), auth_info.get_project_id())
+            if not custom_ou:
+                return flask.abort(HTTP_BAD_REQUEST, description="BAD_CUSTOM_OU")
+
+            logging.info("Found the OU '%s' that is a descendant of the custom root OU, authorized (2/2)" % custom_ou)
+            logging.info("Computer will be created in a custom OU: '%s'" % custom_ou)
+            computer_ou = custom_ou
         except Exception:
-            return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
+            return flask.abort(HTTP_INTERNAL_SERVER_ERROR, description="UNKNOWN_CUSTOM_OU_ERROR")
     else:
-        computer_ou = project_ou
-        logging.info("Computer will be created in a project OU: '%s'" % computer_ou)
+        logging.error("Could not find PROJECTS_DN nor CUSTOM_OU_ROOT_DN in the environment variables. Failed to configure OU root.")
+        return flask.abort(HTTP_INTERNAL_SERVER_ERROR, description="BAD_ROOT_OU_CONFIGURATION")
 
     original_computer_name = computer_name
 
@@ -421,11 +432,11 @@ def __register_computer(request):
                 else:
                     logging.error("Account '%s' already exists in OU '%s' with different attributes. Current attributes are (instance='%s', project='%s'), and requested attributes are (instance='%s', project='%s')" 
                         % (computer_name, computer_ou, computer_account.get_instance_name(), computer_account.get_project_id(), auth_info.get_instance_name(), auth_info.get_project_id()))
-                    flask.abort(HTTP_CONFLICT)
+                    flask.abort(HTTP_CONFLICT, description="SIMILAR_COMPUTER_ACCOUNT_EXISTS_IN_AD")
             except ad.domain.NoSuchObjectException as e:
                 logging.error("Account '%s' from project '%s' already exists, but cannot be found in OU '%s'. It probably belongs to a different project or is configured to use a different OU" % 
                     (computer_name, auth_info.get_project_id(), computer_ou))
-                flask.abort(HTTP_CONFLICT)
+                flask.abort(HTTP_CONFLICT, description="SIMILAR_COMPUTER_ACCOUNT_EXISTS_IN_AD")
 
         # Check if the instance is part of a Managed Instance Group (MIG)
         mig_info = __get_managed_instance_group_for_instance(gce_instance)
@@ -463,7 +474,7 @@ def __register_computer(request):
                         # we shouldn't get groups with the same ID in other OUs.
                         logging.error("Failed adding AD Group for MIG '%s' in project '%s'. There is probably a MIG by this name in another OU" 
                             % (mig_name, auth_info.get_project_id()))
-                        flask.abort(HTTP_CONFLICT)
+                        flask.abort(HTTP_CONFLICT, "GROUP_ALREADY_EXISTS_IN_AD")
                     else: 
                         # Group added in the same project, safe to proceed
                         logging.info("AD Group '%s' found while creating. Assuming it was added by another computer joining in parallel" % (mig_name))                
@@ -518,7 +529,7 @@ def __register_computer(request):
     except Exception as e:
         logging.exception("Creating computer account for '%s' in '%s' failed" %
             (computer_name, computer_ou))
-        return flask.abort(HTTP_INTERNAL_SERVER_ERROR)
+        return flask.abort(HTTP_INTERNAL_SERVER_ERROR, description="UNKNOWN_ERROR_CREATE_COMPUTER_ACCOUNT")
 
     # Return credentials so that the computer can use them to join.
     return flask.jsonify(
@@ -538,7 +549,7 @@ def __cleanup_computers(request):
     headerName = "Authorization"
     if not headerName in request.headers:
         logging.exception("Authentication missing")
-        return flask.abort(HTTP_AUTHENTICATION_REQUIRED)
+        return flask.abort(HTTP_AUTHENTICATION_REQUIRED, description="CALLER_AUTHENTICATION_MISSING")
 
     # Authenticate the request.
     # Expect the host as audience so that multiple deployments of this
@@ -550,14 +561,14 @@ def __cleanup_computers(request):
             False)
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
-        return flask.abort(HTTP_ACCESS_DENIED)
+        return flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
 
     # Authorize the request. The request must be using the same service
     # account as the cloud function in order to be considered legitimate.
     function_identity = __read_required_setting("FUNCTION_IDENTITY")
     if function_identity != auth_info.get_email():
         logging.error("Untrusted caller '%s', expected '%s'" % (auth_info.get_email(), function_identity))
-        return flask.abort(HTTP_ACCESS_DENIED)
+        return flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
 
     # The request is now properly authorized. Identify projects that we can
     # scavenge.
@@ -565,7 +576,7 @@ def __cleanup_computers(request):
         ad_connection = __connect_to_activedirectory()
     except Exception as e:
         logging.exception("Connecting to Active Directory failed")
-        return flask.abort(HTTP_BAD_GATEWAY)
+        return flask.abort(HTTP_BAD_GATEWAY, description="CONNECT_TO_AD_FAILED")
 
     # Although we verify that we can access the VM instance's project when a VM
     # is joined, this project access might later be revoked. When checking whether
@@ -573,10 +584,14 @@ def __cleanup_computers(request):
     # between the cases (1) the VM does not exist and (2) the VM is inaccessible.
 
     # Iterate over all OUs underneath the projects OU or the custom OU, if specified
-    projects_dn = __read_required_setting("PROJECTS_DN")
-    root_dn = os.getenv("CUSTOM_OU_ROOT_DN", projects_dn)
-    logging.info("Starting cleanup in OU '%s'" % root_dn)
+    projects_root_dn = os.getenv("PROJECTS_DN")
+    root_dn = os.getenv("CUSTOM_OU_ROOT_DN", projects_root_dn)
     
+    if not root_dn or root_dn == "":
+        logging.warning("Cleanup cannot start. Could not find root OU to start the scan from.")
+        return flask.abort(HTTP_INTERNAL_SERVER_ERROR, description="BAD_ROOT_OU_CONFIGURATION")
+
+    logging.info("Starting cleanup in OU '%s'" % root_dn)
     result = {}
     for ou in ad_connection.find_ou(root_dn):
         try:            
@@ -695,5 +710,12 @@ app.debug = False
 def index():
     return register_computer(request)
 
+def _handle_http_exception(e):
+    return flask.jsonify(error=e.description), e.code
+
+for code in werkzeug.exceptions.default_exceptions:
+    app.register_error_handler(code, _handle_http_exception)
+
 if __name__ == "__main__":
     app.run()
+
