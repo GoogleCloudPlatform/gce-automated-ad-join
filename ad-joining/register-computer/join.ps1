@@ -36,10 +36,10 @@ $IdToken = (Invoke-RestMethod `
 
 # Register computer in Active Directory.
 $JoinInfo = try {
-    (Invoke-RestMethod `
+    Invoke-RestMethod `
         -Headers @{"Authorization" = "Bearer $IdToken"} `
         -Method POST `
-        -Uri "%scheme%://%domain%/").BaseResponse
+        -Uri "%scheme%://%domain%/"
  } catch {
     $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
     $reader.BaseStream.Position = 0
