@@ -51,8 +51,7 @@ $JoinInfo = try {
     Write-Host "Failed to register computer account."
 }
 
-if ($JoinInfo) 
-{
+if ($JoinInfo) {
     Write-Host "Successfully registered computer account."
     $JoinInfoRedacted = $JoinInfo.PSObject.copy()
     $JoinInfoRedacted.ComputerPassword = "*"
