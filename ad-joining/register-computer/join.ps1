@@ -23,7 +23,7 @@
 # Include this scriptlet as specialize script (sysprep-specialize-script-ps1)
 # to have VM instances automatically join the domain.
 #
-# iex((New-Object System.Net.WebClient).DownloadString('https://%domain%/register-computer'))
+# iex((New-Object System.Net.WebClient).DownloadString('https://%domain%/'))
 #--------------------------------------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
