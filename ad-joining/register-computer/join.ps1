@@ -31,36 +31,45 @@ $InformationPreference = "Continue";
 
 <#
     .SYNOPSIS
-        Retrieves the diagnotics bucket from metadata.
-        If no bucket was set returns null.
+        Retrieves the diagnotics bucket from metadata or an empty string if attribute has not been set.
 
     .OUTPUTS
-        [string] or $Null
+        [string]
 
     .EXAMPLE
-        Get-DiagnosticsBucket
+        $bucket = Get-DiagnosticsBucket
 #>
 function Get-DiagnosticsBucket
 {
     process
     {
-        $DiagnosticsBucket = $Null;
-        
+        $DiagnosticsBucket = [string]::Empty;
+
         try
         {
-            $Bucket = (Invoke-RestMethod -Headers $MetadataHeaders `
-                -Uri "$($MetadataUri)/attributes/adjoin-diagnostics-bucket");
-
-            if(-not [string]::IsNullOrEmpty($Bucket))
-            {
-                $DiagnosticsBucket = $Bucket;
-            }
+            # Get instance level metadata attribute
+            $DiagnosticsBucket = (Invoke-RestMethod -Headers $MetadataHeaders `
+                -Uri "$($MetadataUri)/instance/attributes/adjoin-diagnostics-bucket");
         }
         catch
         {
             # Swallow exception that may ocurr when metadata attribute is not set
         }
 
+        if([string]::IsNullOrEmpty($DiagnosticsBucket))
+        {
+            try
+            {
+                # Get project level metadata attribute
+                $DiagnosticsBucket = (Invoke-RestMethod -Headers $MetadataHeaders `
+                    -Uri "$($MetadataUri)/project/attributes/adjoin-diagnostics-bucket");
+            }
+            catch
+            {
+                # Swallow exception that may ocurr when metadata attribute is not set
+            }
+        }
+        
         return $DiagnosticsBucket;
     }
 }
@@ -110,7 +119,7 @@ function Start-JoinDiagnostics
 
     process
     {
-        if($null -ne $DiagnosticsBucket)
+        if(-not [string]::IsNullOrEmpty($DiagnosticsBucket))
         {
             Write-Information -MessageData "AD Join diagnostics: Enabled"; 
 
@@ -150,7 +159,7 @@ function Stop-JoinDiagnostics
 
     process
     {
-        if($null -ne $DiagnosticsBucket)
+        if(-not [string]::IsNullOrEmpty($DiagnosticsBucket))
         {
             $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
             $Timestamp = [DateTime]::Now.ToUniversalTime().ToString("yyyy-MM-dd-HH-mm");
@@ -176,7 +185,7 @@ function Stop-JoinDiagnostics
     }
 }
 
-$MetadataUri = "http://metadata.google.internal/computeMetadata/v1/instance";
+$MetadataUri = "http://metadata.google.internal/computeMetadata/v1";
 $MetadataHeaders = @{"Metadata-Flavor" = "Google"};
 
 # Retrieve diagnostics bucket from metadata
@@ -188,7 +197,7 @@ Start-JoinDiagnostics -DiagnosticsBucket $DiagnosticsBucket;
 # Fetch IdToken that we can use to authenticate the instance with.
 $IdToken = (Invoke-RestMethod `
     -Headers $MetadataHeaders `
-    -Uri "$($MetadataUri)/service-accounts/default/identity?audience=%scheme%:%2F%2F%domain%%2F&format=full")
+    -Uri "$($MetadataUri)/instance/service-accounts/default/identity?audience=%scheme%:%2F%2F%domain%%2F&format=full")
 
 # Register computer in Active Directory.
 $JoinInfo = try {
