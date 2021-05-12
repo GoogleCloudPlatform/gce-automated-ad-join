@@ -29,3 +29,5 @@ ksetpwd/ksetpwd.o
 register-computer/kerberos/bin/
 
 .vscode
+
+ad-joining/cloudbuild.hydrated.yaml
