@@ -32,24 +32,21 @@ $InformationPreference = "Continue";
 $MetadataUri = "http://metadata.google.internal/computeMetadata/v1/instance";
 $MetadataHeaders = @{"Metadata-Flavor" = "Google"};
 
-$EnableDiagnostics = $false;
+$EnableDiagnostics = $False;
 try
 {
-    $EnableDiagnostics = (Invoke-RestMethod -Headers $MetadataHeaders `
-        -Uri "$($MetadataUri)/attributes/enable-adjoin-diagnostics");
+    # This may throw a 404
+    $DiagnosticsBucket = (Invoke-RestMethod -Headers $MetadataHeaders `
+        -Uri "$($MetadataUri)/attributes/adjoin-diagnostics-bucket");
+
+    if(-not [string]::IsNullOrEmpty($DiagnosticsBucket))
+    {
+        $EnableDiagnostics = $True;
+    }
 
     if($EnableDiagnostics)
     {
         Write-Information -MessageData "AD Join diagnostics: Enabled"; 
-
-        $DiagnosticsBucket = (Invoke-RestMethod -Headers $MetadataHeaders `
-            -Uri "$($MetadataUri)/attributes/adjoin-diagnostics-bucket");
-
-        if($DiagnosticsBucket -eq "")
-        {
-            throw [System.ArgumentException]::new(
-                "AD Join diagnostics enabled but bucket not set. Point adjoin-diagnostics-bucket metadata to a GCS bucket the service account has write access to.");
-        }
 
         $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
 
@@ -73,9 +70,8 @@ catch
 {
     # Swallow HTTP 404 thrown if metadata key has not been set
     # or if bucket has not been set
-    $EnableDiagnostics = $false;
 
-    Write-Error -Message "AD Join diagnostics: Failed to start: $($_.Exception.Message)";
+    Write-Information -Message "AD Join diagnostics: Not enabled";
 }
 
 # Fetch IdToken that we can use to authenticate the instance with.
