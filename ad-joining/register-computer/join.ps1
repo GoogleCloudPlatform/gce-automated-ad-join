@@ -47,7 +47,8 @@ try
 
         if($DiagnosticsBucket -eq "")
         {
-            throw New-Object System.ArgumentException "AD Join diagnostics enabled but bucket not set. Point adjoin-diagnostics-bucket metadata to a GCS bucket the service account has write access to.";
+            throw [System.ArgumentException]::new(
+                "AD Join diagnostics enabled but bucket not set. Point adjoin-diagnostics-bucket metadata to a GCS bucket the service account has write access to.");
         }
 
         $DiagnosticsCaptureFile = "$env:SystemRoot\temp\capture.etl";
