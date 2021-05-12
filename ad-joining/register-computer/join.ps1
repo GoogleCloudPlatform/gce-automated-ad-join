@@ -124,14 +124,7 @@ function Start-JoinDiagnostics
             Write-Information -MessageData "AD Join diagnostics: Enabled"; 
 
             $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
-            if((Get-WindowsVersion) -eq 1)
-            {
-                & pktmon start -c --pkt-size 0 -f $DiagnosticsCaptureFile | Out-Null;
-            }
-            else
-            {
-                & netsh trace start capture=yes tracefile=$DiagnosticsCaptureFile | Out-Null;
-            }
+            & netsh trace start capture=yes tracefile=$DiagnosticsCaptureFile | Out-Null;
         }
         else
         {
@@ -164,17 +157,8 @@ function Stop-JoinDiagnostics
             $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
             $Timestamp = [DateTime]::Now.ToUniversalTime().ToString("yyyy-MM-dd-HH-mm");
 
-            if((Get-WindowsVersion) -eq 1)
-            {
-                $DiagnosticsOutputFile = "${env:TEMP}\capture.pcapng";
-                & pktmon stop | Out-Null;
-                & pktmon pcapng $DiagnosticsCaptureFile -o $DiagnosticsOutputFile | Out-Null;
-            }
-            else
-            {
-                $DiagnosticsOutputFile = $DiagnosticsCaptureFile;
-                & netsh trace stop | Out-Null;
-            }
+            $DiagnosticsOutputFile = $DiagnosticsCaptureFile;
+            & netsh trace stop | Out-Null;
             
             $Extension = [System.IO.Path]::GetExtension($DiagnosticsOutputFile);
             $DiagnosticsBucketFile = "gs://$DiagnosticsBucket/captures/$($JoinInfo.ComputerName)-$Timestamp$Extension";
