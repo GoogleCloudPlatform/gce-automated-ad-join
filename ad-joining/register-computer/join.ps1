@@ -80,7 +80,7 @@ catch
 # Fetch IdToken that we can use to authenticate the instance with.
 $IdToken = (Invoke-RestMethod `
     -Headers $MetadataHeaders `
-    -Uri "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=%scheme%:%2F%2F%domain%%2F&format=full")
+    -Uri "$($MetadataUri)/service-accounts/default/identity?audience=%scheme%:%2F%2F%domain%%2F&format=full")
 
 # Register computer in Active Directory.
 $JoinInfo = try {
