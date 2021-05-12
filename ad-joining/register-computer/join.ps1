@@ -29,50 +29,161 @@
 $ErrorActionPreference = "Stop"
 $InformationPreference = "Continue";
 
-$MetadataUri = "http://metadata.google.internal/computeMetadata/v1/instance";
-$MetadataHeaders = @{"Metadata-Flavor" = "Google"};
+<#
+    .SYNOPSIS
+        Retrieves the diagnotics bucket from metadata.
+        If no bucket was set returns null.
 
-$EnableDiagnostics = $False;
-try
+    .OUTPUTS
+        [string] or $Null
+
+    .EXAMPLE
+        Get-DiagnosticsBucket
+#>
+function Get-DiagnosticsBucket
 {
-    # This may throw a 404
-    $DiagnosticsBucket = (Invoke-RestMethod -Headers $MetadataHeaders `
-        -Uri "$($MetadataUri)/attributes/adjoin-diagnostics-bucket");
-
-    if(-not [string]::IsNullOrEmpty($DiagnosticsBucket))
+    process
     {
-        $EnableDiagnostics = $True;
-    }
-
-    if($EnableDiagnostics)
-    {
-        Write-Information -MessageData "AD Join diagnostics: Enabled"; 
-
-        $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
-
-        if([Environment]::OSVersion.Version -ge (New-Object 'Version' 10,0,17763))
+        $DiagnosticsBucket = $Null;
+        
+        try
         {
-            # Windows Server 2019 and newer
-            $DiagnosticsOsVersion = "ws2019";
+            $Bucket = (Invoke-RestMethod -Headers $MetadataHeaders `
+                -Uri "$($MetadataUri)/attributes/adjoin-diagnostics-bucket");
 
-            & pktmon start -c --pkt-size 0 -f $DiagnosticsCaptureFile | Out-Null;
+            if(-not [string]::IsNullOrEmpty($Bucket))
+            {
+                $DiagnosticsBucket = $Bucket;
+            }
+        }
+        catch
+        {
+            # Swallow exception that may ocurr when metadata attribute is not set
+        }
+
+        return $DiagnosticsBucket;
+    }
+}
+
+<#
+    .SYNOPSIS
+        Determines the version of Windows
+
+    .OUTPUTS
+        1 = Windows Server 2019 or newer
+        2 = Windows Server 2016, Windows Server 2012 R2 or older
+
+    .EXAMPLE
+        Get-WindowsVersion
+#>
+function Get-WindowsVersion
+{
+    process
+    {
+        $Version = 2;
+
+        if([Environment]::OSVersion.Version -ge (New-Object 'Version' 10, 0, 17763))
+        {
+            $Version = 1;
+        }
+
+        return $Version;
+    }
+}
+
+<#
+    .SYNOPSIS
+        Starts diagnostics depending on whether a bucket was configure or not
+
+    .PARAMETER DiagnosticsBucket
+        String denoting the GCS bucket the diagnostics should be copied to
+
+    .EXAMPLE
+        Start-JoinDiagnotics -DiagnosticsBucket "adjoin-test";
+#>
+function Start-JoinDiagnostics
+{
+    param
+    (
+        [string] $DiagnosticsBucket
+    );
+
+    process
+    {
+        if($null -ne $DiagnosticsBucket)
+        {
+            Write-Information -MessageData "AD Join diagnostics: Enabled"; 
+
+            $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
+            if((Get-WindowsVersion) -eq 1)
+            {
+                & pktmon start -c --pkt-size 0 -f $DiagnosticsCaptureFile | Out-Null;
+            }
+            else
+            {
+                & netsh trace start capture=yes tracefile=$DiagnosticsCaptureFile | Out-Null;
+            }
         }
         else
         {
-            # Windows Server 2012 R2 or 2016
-            $DiagnosticsOsVersion = "ws2016"
-
-            & netsh trace start capture=yes tracefile=$DiagnosticsCaptureFile | Out-Null;
+            Write-Information -Message "AD Join diagnostics: Not enabled";
         }
     }
 }
-catch
-{
-    # Swallow HTTP 404 thrown if metadata key has not been set
-    # or if bucket has not been set
 
-    Write-Information -Message "AD Join diagnostics: Not enabled";
+<#
+    .SYNOPSIS
+        Stops diagnostics depending on whether a bucket was configure or not
+
+    .PARAMETER DiagnosticsBucket
+        String denoting the GCS bucket the diagnostics should be copied to
+
+    .EXAMPLE
+        Stop-JoinDiagnotics -DiagnosticsBucket "adjoin-test";
+#>
+function Stop-JoinDiagnostics
+{
+    param
+    (
+        [string] $DiagnosticsBucket
+    );
+
+    process
+    {
+        if($null -ne $DiagnosticsBucket)
+        {
+            $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
+            $Timestamp = [DateTime]::Now.ToUniversalTime().ToString("yyyy-MM-dd-HH-mm");
+
+            if((Get-WindowsVersion) -eq 1)
+            {
+                $DiagnosticsOutputFile = "${env:TEMP}\capture.pcapng";
+                & pktmon stop | Out-Null;
+                & pktmon pcapng $DiagnosticsCaptureFile -o $DiagnosticsOutputFile | Out-Null;
+            }
+            else
+            {
+                $DiagnosticsOutputFile = $DiagnosticsCaptureFile;
+                & netsh trace stop | Out-Null;
+            }
+            
+            $Extension = [System.IO.Path]::GetExtension($DiagnosticsOutputFile);
+            $DiagnosticsBucketFile = "gs://$DiagnosticsBucket/captures/$($JoinInfo.ComputerName)-$Timestamp$Extension";
+            & gsutil -q cp $DiagnosticsOutputFile $DiagnosticsBucketFile;
+
+            Write-Information -MessageData "AD Join diagnostics: Packet capture copied to $DiagnosticsBucketFile"; 
+        }
+    }
 }
+
+$MetadataUri = "http://metadata.google.internal/computeMetadata/v1/instance";
+$MetadataHeaders = @{"Metadata-Flavor" = "Google"};
+
+# Retrieve diagnostics bucket from metadata
+$DiagnosticsBucket = Get-DiagnosticsBucket;
+
+# Diagnostics started depending on bucket setting
+Start-JoinDiagnostics -DiagnosticsBucket $DiagnosticsBucket;
 
 # Fetch IdToken that we can use to authenticate the instance with.
 $IdToken = (Invoke-RestMethod `
@@ -140,6 +251,7 @@ if ($JoinInfo) {
                 -Force
 
             Write-Host "Computer successfully joined to domain"
+            Stop-JoinDiagnostics -DiagnosticsBucket $DiagnosticsBucket;
             break
         }
         catch {
@@ -151,33 +263,10 @@ if ($JoinInfo) {
                 Start-Sleep -Seconds 3
             }
             else {
+                Stop-JoinDiagnostics -DiagnosticsBucket $DiagnosticsBucket;
+
                 throw [System.ArgumentException]::new(
                     "Joining computer to domain failed: $($_.Exception.Message)")
-            }
-        }
-        finally
-        {
-            if($EnableDiagnostics)
-            {
-                $Timestamp = [DateTime]::Now.ToUniversalTime().ToString("yyyy-MM-dd-HH-mm");
-
-                if($DiagnosticsOsVersion -eq "ws2019")
-                {
-                    $DiagnosticsOutputFile = "${env:TEMP}\capture.pcapng";
-                    & pktmon stop | Out-Null;
-                    & pktmon pcapng $DiagnosticsCaptureFile -o $DiagnosticsOutputFile | Out-Null;
-                }
-                else
-                {
-                    $DiagnosticsOutputFile = $DiagnosticsCaptureFile;
-                    & netsh trace stop | Out-Null;
-                }
-                
-                $Extension = [System.IO.Path]::GetExtension($DiagnosticsOutputFile);
-                $DiagnosticsBucketFile = "gs://$DiagnosticsBucket/captures/$($JoinInfo.ComputerName)-$Timestamp$Extension";
-                & gsutil -q cp $DiagnosticsOutputFile $DiagnosticsBucketFile;
-
-                Write-Information -MessageData "AD Join diagnostics: Packet capture copied to $DiagnosticsBucketFile"; 
             }
         }
     } while ($True)
