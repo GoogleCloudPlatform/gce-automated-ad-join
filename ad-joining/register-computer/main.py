@@ -172,7 +172,7 @@ def __shorten_computer_name(computer_name, gce_instance):
         # Not MIG - create a name using the convention XXXXXXXXXX-YYYY
         # X - partial instance name
         # Y - hashed value of instance name
-        hasher = blake2b(digest_size=3)
+        hasher = blake2b(digest_size=2)
         hasher.update(computer_name.encode("utf-8"))
         instance_name_hash = hasher.hexdigest()
         instance_name_prefix = computer_name[:10]
