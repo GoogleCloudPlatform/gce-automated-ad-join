@@ -51,7 +51,7 @@ try
                 "AD Join diagnostics enabled but bucket not set. Point adjoin-diagnostics-bucket metadata to a GCS bucket the service account has write access to.");
         }
 
-        $DiagnosticsCaptureFile = "$env:SystemRoot\temp\capture.etl";
+        $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
 
         if([Environment]::OSVersion.Version -ge (New-Object 'Version' 10,0,17763))
         {
@@ -167,7 +167,7 @@ if ($JoinInfo) {
 
                 if($DiagnosticsOsVersion -eq "ws2019")
                 {
-                    $DiagnosticsOutputFile = "$env:SystemRoot\temp\capture.pcapng";
+                    $DiagnosticsOutputFile = "${env:TEMP}\capture.pcapng";
                     & pktmon stop | Out-Null;
                     & pktmon pcapng $DiagnosticsCaptureFile -o $DiagnosticsOutputFile | Out-Null;
                 }
