@@ -184,7 +184,7 @@ function Stop-JoinDiagnostics
             else
             {
                 # PktMon does not exist in this version of Windows or does not provide trace recording, falling back to netsh trace
-                & netsh trace stop; # | Out-Null;
+                & netsh trace stop | Out-Null;
             }
             
             $Extension = [System.IO.Path]::GetExtension($DiagnosticsOutputFile);
