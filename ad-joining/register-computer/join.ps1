@@ -127,15 +127,24 @@ function Start-JoinDiagnostics
             
             if($Null -ne $Version)
             {
-                New-NetEventSession -Name "adjoin" -LocalFilePath $DiagnosticsCaptureFile | Out-Null;
-                Add-NetEventPacketCaptureProvider -SessionName "adjoin" -TruncationLength 0 | Out-Null;
-                
-                foreach($Adapter in (Get-NetAdapter))
+                if($Version -ge (New-Object Version 10, 0, 17763, 1879))
                 {
-                    Add-NetEventNetworkAdapter -Name "$($Adapter.Name)" | Out-Null;
+                    # Use PktMon for tracing
+                    & pktmon start -c --pkt-size 0 -f $DiagnosticsCaptureFile | Out-Null;
                 }
+                else
+                {
+                    # Fall back to NetEventPacketCapture if only an older version of PktMon is available
+                    New-NetEventSession -Name "adjoin" -LocalFilePath $DiagnosticsCaptureFile | Out-Null;
+                    Add-NetEventPacketCaptureProvider -SessionName "adjoin" -TruncationLength 0 | Out-Null;
+                    
+                    foreach($Adapter in (Get-NetAdapter))
+                    {
+                        Add-NetEventNetworkAdapter -Name "$($Adapter.Name)" | Out-Null;
+                    }
 
-                Start-NetEventSession -Name "adjoin";
+                    Start-NetEventSession -Name "adjoin";
+                }
             }
             else
             {
@@ -178,12 +187,23 @@ function Stop-JoinDiagnostics
             $Version = Get-PktMonVersion;
             if($Null -ne $Version)
             {
-                Stop-NetEventSession -Name "adjoin";
-                Remove-NetEventSession -Name "adjoin";
+                if($Version -ge (New-Object Version 10, 0, 17763, 1879))
+                {
+                    # Stop PktMon trace and convert to pcapng
+                    $DiagnosticsOutputFile = "$env:SystemRoot\temp\capture.pcapng";
+                    & pktmon stop | Out-Null;
+                    & pktmon pcapng $DiagnosticsCaptureFile -o $DiagnosticsOutputFile | Out-Null;
+                }
+                else
+                {
+                    # Stop NetEventPacketCapture trace
+                    Stop-NetEventSession -Name "adjoin";
+                    Remove-NetEventSession -Name "adjoin";
+                }
             }
             else
             {
-                # PktMon does not exist in this version of Windows or does not provide trace recording, falling back to netsh trace
+                # Stop netsh trace
                 & netsh trace stop | Out-Null;
             }
             
