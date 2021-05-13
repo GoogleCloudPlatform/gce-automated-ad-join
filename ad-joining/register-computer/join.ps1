@@ -76,27 +76,26 @@ function Get-DiagnosticsBucket
 
 <#
     .SYNOPSIS
-        Determines the version of Windows
+        Determines the version of PktMon
 
     .OUTPUTS
-        1 = Windows Server 2019 or newer
-        2 = Windows Server 2016, Windows Server 2012 R2 or older
+        Version of PktMon or $Null if PktMon is not available
 
     .EXAMPLE
-        Get-WindowsVersion
+        Get-PktMonVersion
 #>
-function Get-WindowsVersion
+function Get-PktMonVersion
 {
     process
     {
-        $Version = 2;
+        $Command = Get-Command -Name "PktMon.exe" -ErrorAction SilentlyContinue;
 
-        if([Environment]::OSVersion.Version -ge (New-Object 'Version' 10, 0, 17763))
+        if($Null -ne $Command)
         {
-            $Version = 1;
+            return $Command.Version;
         }
 
-        return $Version;
+        return $Null;
     }
 }
 
@@ -124,7 +123,25 @@ function Start-JoinDiagnostics
             Write-Information -MessageData "AD Join diagnostics: Enabled"; 
 
             $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
-            & netsh trace start capture=yes tracefile=$DiagnosticsCaptureFile | Out-Null;
+            $Version = Get-PktMonVersion;
+            
+            if($Null -ne $Version)
+            {
+                New-NetEventSession -Name "adjoin" -LocalFilePath $DiagnosticsCaptureFile | Out-Null;
+                Add-NetEventPacketCaptureProvider -SessionName "adjoin" -TruncationLength 0 | Out-Null;
+                
+                foreach($Adapter in (Get-NetAdapter))
+                {
+                    Add-NetEventNetworkAdapter -Name "$($Adapter.Name)" | Out-Null;
+                }
+
+                Start-NetEventSession -Name "adjoin";
+            }
+            else
+            {
+                # PktMon does not exist in this version of Windows or does not provide trace recording, falling back to netsh trace
+                & netsh trace start capture=yes perfMerge=no report=disabled tracefile=$DiagnosticsCaptureFile | Out-Null;
+            }
         }
         else
         {
@@ -155,10 +172,20 @@ function Stop-JoinDiagnostics
         if(-not [string]::IsNullOrEmpty($DiagnosticsBucket))
         {
             $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
+            $DiagnosticsOutputFile = $DiagnosticsCaptureFile;
             $Timestamp = [DateTime]::Now.ToUniversalTime().ToString("yyyy-MM-dd-HH-mm");
 
-            $DiagnosticsOutputFile = $DiagnosticsCaptureFile;
-            & netsh trace stop | Out-Null;
+            $Version = Get-PktMonVersion;
+            if($Null -ne $Version)
+            {
+                Stop-NetEventSession -Name "adjoin";
+                Remove-NetEventSession -Name "adjoin";
+            }
+            else
+            {
+                # PktMon does not exist in this version of Windows or does not provide trace recording, falling back to netsh trace
+                & netsh trace stop; # | Out-Null;
+            }
             
             $Extension = [System.IO.Path]::GetExtension($DiagnosticsOutputFile);
             $DiagnosticsBucketFile = "gs://$DiagnosticsBucket/captures/$($JoinInfo.ComputerName)-$Timestamp$Extension";
