@@ -27,12 +27,208 @@
 #--------------------------------------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
+$InformationPreference = "Continue";
+
+<#
+    .SYNOPSIS
+        Retrieves the diagnotics bucket from metadata or an empty string if attribute has not been set.
+
+    .OUTPUTS
+        [string]
+
+    .EXAMPLE
+        $bucket = Get-DiagnosticsBucket
+#>
+function Get-DiagnosticsBucket
+{
+    process
+    {
+        $DiagnosticsBucket = [string]::Empty;
+
+        try
+        {
+            # Get instance level metadata attribute
+            $DiagnosticsBucket = (Invoke-RestMethod -Headers $MetadataHeaders `
+                -Uri "$($MetadataUri)/instance/attributes/adjoin-diagnostics-bucket");
+        }
+        catch
+        {
+            # Swallow exception that may ocurr when metadata attribute is not set
+        }
+
+        if([string]::IsNullOrEmpty($DiagnosticsBucket))
+        {
+            try
+            {
+                # Get project level metadata attribute
+                $DiagnosticsBucket = (Invoke-RestMethod -Headers $MetadataHeaders `
+                    -Uri "$($MetadataUri)/project/attributes/adjoin-diagnostics-bucket");
+            }
+            catch
+            {
+                # Swallow exception that may ocurr when metadata attribute is not set
+            }
+        }
+        
+        return $DiagnosticsBucket;
+    }
+}
+
+<#
+    .SYNOPSIS
+        Determines the version of PktMon
+
+    .OUTPUTS
+        Version of PktMon or $Null if PktMon is not available
+
+    .EXAMPLE
+        Get-PktMonVersion
+#>
+function Get-PktMonVersion
+{
+    process
+    {
+        $Command = Get-Command -Name "PktMon.exe" -ErrorAction SilentlyContinue;
+
+        if($Null -ne $Command)
+        {
+            return $Command.Version;
+        }
+
+        return $Null;
+    }
+}
+
+<#
+    .SYNOPSIS
+        Starts diagnostics depending on whether a bucket was configure or not
+
+    .PARAMETER DiagnosticsBucket
+        String denoting the GCS bucket the diagnostics should be copied to
+
+    .EXAMPLE
+        Start-JoinDiagnotics -DiagnosticsBucket "adjoin-test";
+#>
+function Start-JoinDiagnostics
+{
+    param
+    (
+        [string] $DiagnosticsBucket
+    );
+
+    process
+    {
+        if(-not [string]::IsNullOrEmpty($DiagnosticsBucket))
+        {
+            Write-Information -MessageData "AD Join diagnostics: Enabled"; 
+
+            $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
+            $Version = Get-PktMonVersion;
+            
+            if($Null -ne $Version)
+            {
+                if($Version -ge (New-Object Version 10, 0, 17763, 1879))
+                {
+                    # Use PktMon for tracing
+                    & pktmon start -c --pkt-size 0 -f $DiagnosticsCaptureFile | Out-Null;
+                }
+                else
+                {
+                    # Fall back to NetEventPacketCapture if only an older version of PktMon is available
+                    New-NetEventSession -Name "adjoin" -LocalFilePath $DiagnosticsCaptureFile | Out-Null;
+                    Add-NetEventPacketCaptureProvider -SessionName "adjoin" -TruncationLength 0 | Out-Null;
+                    
+                    foreach($Adapter in (Get-NetAdapter))
+                    {
+                        Add-NetEventNetworkAdapter -Name "$($Adapter.Name)" | Out-Null;
+                    }
+
+                    Start-NetEventSession -Name "adjoin";
+                }
+            }
+            else
+            {
+                # PktMon does not exist in this version of Windows or does not provide trace recording, falling back to netsh trace
+                & netsh trace start capture=yes perfMerge=no report=disabled tracefile=$DiagnosticsCaptureFile | Out-Null;
+            }
+        }
+        else
+        {
+            Write-Information -Message "AD Join diagnostics: Not enabled";
+        }
+    }
+}
+
+<#
+    .SYNOPSIS
+        Stops diagnostics depending on whether a bucket was configure or not
+
+    .PARAMETER DiagnosticsBucket
+        String denoting the GCS bucket the diagnostics should be copied to
+
+    .EXAMPLE
+        Stop-JoinDiagnotics -DiagnosticsBucket "adjoin-test";
+#>
+function Stop-JoinDiagnostics
+{
+    param
+    (
+        [string] $DiagnosticsBucket
+    );
+
+    process
+    {
+        if(-not [string]::IsNullOrEmpty($DiagnosticsBucket))
+        {
+            $DiagnosticsCaptureFile = "${env:TEMP}\capture.etl";
+            $DiagnosticsOutputFile = $DiagnosticsCaptureFile;
+            $Timestamp = [DateTime]::Now.ToUniversalTime().ToString("yyyy-MM-dd-HH-mm");
+
+            $Version = Get-PktMonVersion;
+            if($Null -ne $Version)
+            {
+                if($Version -ge (New-Object Version 10, 0, 17763, 1879))
+                {
+                    # Stop PktMon trace and convert to pcapng
+                    $DiagnosticsOutputFile = "$env:SystemRoot\temp\capture.pcapng";
+                    & pktmon stop | Out-Null;
+                    & pktmon pcapng $DiagnosticsCaptureFile -o $DiagnosticsOutputFile | Out-Null;
+                }
+                else
+                {
+                    # Stop NetEventPacketCapture trace
+                    Stop-NetEventSession -Name "adjoin";
+                    Remove-NetEventSession -Name "adjoin";
+                }
+            }
+            else
+            {
+                # Stop netsh trace
+                & netsh trace stop | Out-Null;
+            }
+            
+            $Extension = [System.IO.Path]::GetExtension($DiagnosticsOutputFile);
+            $DiagnosticsBucketFile = "gs://$DiagnosticsBucket/captures/$($JoinInfo.ComputerName)-$Timestamp$Extension";
+            & gsutil -q cp $DiagnosticsOutputFile $DiagnosticsBucketFile;
+
+            Write-Information -MessageData "AD Join diagnostics: Packet capture copied to $DiagnosticsBucketFile"; 
+        }
+    }
+}
+
+$MetadataUri = "http://metadata.google.internal/computeMetadata/v1";
+$MetadataHeaders = @{"Metadata-Flavor" = "Google"};
+
+# Retrieve diagnostics bucket from metadata
+$DiagnosticsBucket = Get-DiagnosticsBucket;
+
+# Diagnostics started depending on bucket setting
+Start-JoinDiagnostics -DiagnosticsBucket $DiagnosticsBucket;
 
 # Fetch IdToken that we can use to authenticate the instance with.
 $IdToken = (Invoke-RestMethod `
-    -Headers @{"Metadata-Flavor" = "Google"} `
-    -Uri "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=%scheme%:%2F%2F%domain%%2F&format=full")
-
+    -Headers $MetadataHeaders `
+    -Uri "$($MetadataUri)/instance/service-accounts/default/identity?audience=%scheme%:%2F%2F%domain%%2F&format=full")
 
 # Register computer in Active Directory.
 $JoinInfo = try {
@@ -95,6 +291,7 @@ if ($JoinInfo) {
                 -Force
 
             Write-Host "Computer successfully joined to domain"
+            Stop-JoinDiagnostics -DiagnosticsBucket $DiagnosticsBucket;
             break
         }
         catch {
@@ -106,6 +303,8 @@ if ($JoinInfo) {
                 Start-Sleep -Seconds 3
             }
             else {
+                Stop-JoinDiagnostics -DiagnosticsBucket $DiagnosticsBucket;
+
                 throw [System.ArgumentException]::new(
                     "Joining computer to domain failed: $($_.Exception.Message)")
             }
