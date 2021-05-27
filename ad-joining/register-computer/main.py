@@ -88,7 +88,7 @@ def __read_ad_password():
             logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
             raise e
 
-def __connect_to_activedirectory():
+def __connect_to_activedirectory(hostname):
     domain = __read_required_setting("AD_DOMAIN")
 
     if "AD_DOMAINCONTROLLER" in os.environ:
@@ -104,11 +104,18 @@ def __connect_to_activedirectory():
     # that works.
     for dc in domain_controllers:
         try:
-            return ad.domain.ActiveDirectoryConnection.connect(
+            adObj = ad.domain.ActiveDirectoryConnection.connect(
                     dc,
                     ",".join(["DC=" + dc for dc in domain.split(".")]),
                     __read_required_setting("AD_USERNAME"),
                     __read_ad_password())
+            if (hostname):
+              if (ad.domain.ActiveDirectoryConnection.is_closest_dc(domain, dc, hostname)):            
+                return adObj
+              else:
+                logging.info("Skipping DC '%s' as it is not closest" % dc)
+            else:
+              return adObj
         except Exception as e:
             logging.exception("Failed to connect to DC '%s'" % dc)
 
@@ -286,13 +293,6 @@ def __register_computer(request):
         logging.exception("Authentication failed")
         return flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
 
-    # Connect to Active Directory so that we can authorize the request.
-    try:
-        ad_connection = __connect_to_activedirectory()
-    except Exception as e:
-        logging.exception("Connecting to Active Directory failed")
-        return flask.abort(HTTP_BAD_GATEWAY, description="CONNECT_TO_AD_FAILED")
-
     # Authorize the request. This entails two checks:
     # (1) Check that the project allows AD to manage computer accounts for it.
     #     This is to prevent users from joining machines without the project
@@ -327,6 +327,13 @@ def __register_computer(request):
     except Exception as e:
         logging.exception("Checking project access to '%s' failed" % auth_info.get_project_id())
         return flask.abort(HTTP_ACCESS_DENIED, description="PROJECT_ACCESS_FAILED")
+
+    # Connect to Active Directory so that we can authorize the request.
+    try:
+        ad_connection = __connect_to_activedirectory(computer_name)
+    except Exception as e:
+        logging.exception("Connecting to Active Directory failed")
+        return flask.abort(HTTP_BAD_GATEWAY, description="CONNECT_TO_AD_FAILED")
 
     # Authorize, Part 2: Check that there is a OU with the same name as the
     # project id. The existence of such a OU implies that the owner of the
