@@ -27,6 +27,8 @@ import logging
 import datetime
 import dns.resolver
 import json
+import os
+import subprocess
 
 class LdapException(Exception):
     pass
@@ -87,6 +89,35 @@ class ActiveDirectoryConnection(object):
                 (domain_controller, user))
 
         return ActiveDirectoryConnection(domain_controller, connection, base_dn)
+
+    @staticmethod
+    def is_closest_dc(domain, domain_controller, hostname):
+      script_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "perl")      
+
+      perl_script = os.path.join(script_path, "./cldap.pl")
+
+      logging.info("Launching %s with domain %s controller %s and hostname %s" % (perl_script, domain, domain_controller, hostname))
+      
+      process = subprocess.run(["perl", perl_script, "-d", domain, "-s", domain_controller, "-h", hostname], capture_output=True)
+            
+      if process.returncode == 0:
+        if process.stderr:
+            logging.info(process.stderr)
+        if process.stdout:
+            logging.info(process.stdout)
+            stdout_string = process.stdout.decode("utf-8")
+            if (stdout_string.find("Is the closest DC:                          yes") != -1):
+              return True
+            else:
+              return False
+      else:
+        if process.stderr:
+            logging.warning(process.stderr)
+        if process.stdout:
+            logging.warning(process.stdout)
+
+            raise DomainControllerLookupException("Finding closest DC failed: %d" % process.returncode, process.returncode)
+      return False
 
     def get_domain_controller(self):
         return self.__domain_controller
