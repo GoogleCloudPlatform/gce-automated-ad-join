@@ -61,8 +61,17 @@ class ActiveDirectoryConnection(object):
             return str(value)
 
     @staticmethod
-    def locate_domain_controllers(domain_name):
-        records = dns.resolver.query("_ldap._tcp.dc._msdcs.%s" % domain_name, "SRV")
+    def locate_domain_controllers(domain_name, site_name):
+        query = "_ldap._tcp"
+
+        # Use site-awareness if site was provided
+        if not site_name is None and len(site_name) > 0:
+            query += f".{site_name}._sites"
+            logging.info(f"Using site-awareness to select closest DC for site '{site_name}'")
+
+        query += f".dc._msdcs.{domain_name}"
+
+        records = dns.resolver.query(query, "SRV")
         if len(records) == 0:
             raise DomainControllerLookupException("No SRV records found for %s" % domain_name)
 
