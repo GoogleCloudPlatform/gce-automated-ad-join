@@ -143,7 +143,7 @@ def __is_gke_nodepool_member(gce_instance):
 def __shorten_computer_name(computer_name, gce_instance):
     # Initialize hasher with a 2-byte size
     hasher = blake2b(digest_size=2)
-    
+
     # We can shorten the name of instances if they are part of a MIG
     if __get_managed_instance_group_for_instance(gce_instance):
         if __is_gke_nodepool_member(gce_instance):
@@ -180,6 +180,7 @@ def __shorten_computer_name(computer_name, gce_instance):
         instance_name_hash = hasher.hexdigest()
         instance_name_prefix = computer_name[:10]
         new_computer_name = ("%s-%s" % (instance_name_prefix, instance_name_hash))
+        
     return new_computer_name
 
 def __get_computer_ou_from_metadata(gce_instance):
