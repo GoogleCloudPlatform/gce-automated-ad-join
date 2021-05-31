@@ -141,6 +141,9 @@ def __is_gke_nodepool_member(gce_instance):
     return ("labels" in gce_instance.keys() and 'goog-gke-node' in gce_instance["labels"])
 
 def __shorten_computer_name(computer_name, gce_instance):
+    # Initialize hasher with a 2-byte size
+    hasher = blake2b(digest_size=2)
+    
     # We can shorten the name of instances if they are part of a MIG
     if __get_managed_instance_group_for_instance(gce_instance):
         if __is_gke_nodepool_member(gce_instance):
@@ -161,10 +164,11 @@ def __shorten_computer_name(computer_name, gce_instance):
             instance_name_parts = computer_name.rsplit('-', 1)
             mig_name = instance_name_parts[-2]
             unique_id = instance_name_parts[-1]
+
             # Create a hash that produces 4 hex characters
-            hasher = blake2b(digest_size=2)
             hasher.update(mig_name.encode("utf-8"))
             mig_name_hash = hasher.hexdigest()
+
             # Get first 5 characters from MIG's name
             mig_name_prefix = mig_name[:5]
             new_computer_name = ("%s-%s-%s" % (mig_name_prefix, mig_name_hash, unique_id))        
@@ -172,13 +176,11 @@ def __shorten_computer_name(computer_name, gce_instance):
         # Not MIG - create a name using the convention XXXXXXXXXX-YYYY
         # X - partial instance name
         # Y - hashed value of instance name
-        hasher = blake2b(digest_size=2)
         hasher.update(computer_name.encode("utf-8"))
         instance_name_hash = hasher.hexdigest()
         instance_name_prefix = computer_name[:10]
         new_computer_name = ("%s-%s" % (instance_name_prefix, instance_name_hash))
     return new_computer_name
-
 
 def __get_computer_ou_from_metadata(gce_instance):
     gce_instance_name = gce_instance["name"]
