@@ -230,12 +230,38 @@ $IdToken = (Invoke-RestMethod `
     -Headers $MetadataHeaders `
     -Uri "$($MetadataUri)/instance/service-accounts/default/identity?audience=%scheme%:%2F%2F%domain%%2F&format=full")
 
+# Determine AD site
+$AdSite = "";
+try
+{
+    $Result = & nltest /dsgetdc:%ad_domain% /DS_6 /TRY_NEXT_CLOSEST_SITE;
+    $PatternMatches = ($Result | Select-String -Pattern "^Our Site Name: (.+)$").Matches;
+    
+    if($Null -ne $PatternMatches)
+    {
+        $AdSite = $PatternMatches.Groups[1].Value;
+    }
+}
+catch
+{
+    # Swallow exception and continue without site-awareness
+}
+
+if([string]::IsNullOrEmpty($AdSite))
+{
+    Write-Host "AD site-awareness: Failed to determine closest AD site";
+}
+else
+{
+    Write-Host "AD site-awareness: Using site '$AdSite' for join";
+}
+
 # Register computer in Active Directory.
 $JoinInfo = try {
     Invoke-RestMethod `
         -Headers @{"Authorization" = "Bearer $IdToken"} `
         -Method POST `
-        -Uri "%scheme%://%domain%/"
+        -Uri "%scheme%://%domain%/?ad_site=$AdSite"
  } catch {
     $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
     $reader.BaseStream.Position = 0
