@@ -19,16 +19,12 @@
 # under the License.
 #
 
-import base64
-import datetime
 import flask
 import os
 import logging
 import uuid
-import string
 import time
 
-import google.auth
 import googleapiclient.discovery
 from google.cloud import secretmanager
 
@@ -60,6 +56,14 @@ class ConfigurationException(Exception):
 def __get_request_scheme(request):
     return request.headers.get("X-Forwarded-Proto", request.scheme)
 
+def __read_setting(key):
+    if key in os.environ:
+        return os.environ[key]
+    else:
+        logging.debug("Configuration option '%s' is not set" % key)
+
+    return None
+
 def __read_required_setting(key):
     if not key in os.environ:
         logging.fatal("%s not defined in environment" % key)
@@ -72,21 +76,49 @@ def __read_ad_password():
         # Cleartext password provided (useful for testing).
         return os.environ["AD_PASSWORD"]
     else:
+        # Read password from Secret Manager
+        # Use new settings naming schema first but swallow any configuration exceptions
+        # Try deprecated settings naming schema second but bubble up any exceptions
+
+        try:
+            return __read_secret_manager(
+                __read_required_setting("SM_PROJECT_ADPASSWORD"), 
+                __read_required_setting("SM_NAME_ADPASSWORD"), 
+                __read_required_setting("SM_VERSION_ADPASSWORD"))
+        except ConfigurationException:
+            logging.warn("Could not read SM_*_ADPASSWORD settings, falling back to deprecated settings SECRET_PROJECT_ID, SECRET_NAME and SECRET_VERSION")
+
+        # One or more settings were not found retry with old configuration names
+        return __read_secret_manager(
+            __read_required_setting("SECRET_PROJECT_ID"), 
+            __read_required_setting("SECRET_NAME"), 
+            __read_required_setting("SECRET_VERSION"))
+
+def __read_certificate_data():
+    secret_project_id = __read_setting("SM_PROJECT_CACERT")
+    secret_name = __read_setting("SM_NAME_CACERT")
+    secret_version = __read_setting("SM_VERSION_CACERT")
+
+    if not secret_project_id is None and not secret_name is None and not secret_version is None:
+        logging.info("Reading certificate data from Secret Manager")
+        return __read_secret_manager(secret_project_id, secret_name, secret_version)
+    
+    return None
+
+def __read_secret_manager(project_id, name, version):
+    try:
         client = secretmanager.SecretManagerServiceClient()
-        
-        # If the Service Account does not have permissions
-        # to access the secret an Exception will be raised
-        try:        
-            name = client.secret_version_path(
-                    __read_required_setting("SECRET_PROJECT_ID"), 
-                    __read_required_setting("SECRET_NAME"), 
-                    __read_required_setting("SECRET_VERSION"))
-            response = client.access_secret_version(request={"name": name})
-            return response.payload.data.decode("UTF-8")
-        except Exception as e:
-            # If neither AD_PASSWORD nor Secret Manager hold the password rethrow exception
-            logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
-            raise e
+
+        name = client.secret_version_path(
+                project_id, 
+                name, 
+                version)
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        # Log and rethrow exception from Secret Manager
+        logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
+        raise e
 
 def __connect_to_activedirectory(ad_site):
     domain = __read_required_setting("AD_DOMAIN")
@@ -99,6 +131,9 @@ def __connect_to_activedirectory(ad_site):
         domain_controllers = ad.domain.ActiveDirectoryConnection.locate_domain_controllers(
             domain, ad_site)
 
+    # Retrieve certificate data from Secret Manager
+    certificate_data = __read_certificate_data()
+
     # If we used SRV records to look up domain controllers, then it is possible that
     # the highest-priority one is offline. So loop over the records to fine one
     # that works.
@@ -108,7 +143,8 @@ def __connect_to_activedirectory(ad_site):
                     dc,
                     ",".join(["DC=" + dc for dc in domain.split(".")]),
                     __read_required_setting("AD_USERNAME"),
-                    __read_ad_password())
+                    __read_ad_password(),
+                    certificate_data)
         except Exception as e:
             logging.exception("Failed to connect to DC '%s'" % dc)
 
