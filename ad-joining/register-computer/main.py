@@ -146,7 +146,7 @@ def __connect_to_activedirectory(ad_site):
                     __read_ad_password(),
                     certificate_data)
         except Exception as e:
-            logging.exception("Failed to connect to DC '%s'" % dc)
+            logging.exception("Failed to connect to DC '%s': %s" % (dc, e))
 
     raise ad.domain.LdapException("No more DCs left to try")
 

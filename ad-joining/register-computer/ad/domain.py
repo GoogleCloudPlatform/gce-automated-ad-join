@@ -105,9 +105,9 @@ class ActiveDirectoryConnection(object):
             if connection.bind():
                 return ActiveDirectoryConnection(domain_controller, connection, base_dn)        
         except LDAPStrongerAuthRequiredResult:
-            logging.exception("LDAP bind requires a secure connection. Make sure the Certification Authority certificate has been configured")
+            logging.exception("Failed to connect to LDAP endpoint: Active Directory requires LDAPS for NTLM binds")
         except:
-            pass
+            logging.warn("Failed to connect to LDAP endpoint: %s" % e)
 
         # LDAP connection could not be established, raise exception
         raise LdapException("Connecting to LDAP(S) endpoints of '%s' as '%s' failed" % (domain_controller, user))
