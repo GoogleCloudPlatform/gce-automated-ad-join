@@ -88,7 +88,7 @@ def __read_ad_password():
             logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
             raise e
 
-def __connect_to_activedirectory(ad_site):
+def __connect_to_activedirectory(ad_site=None):
     domain = __read_required_setting("AD_DOMAIN")
 
     if "AD_DOMAINCONTROLLER" in os.environ:
