@@ -85,7 +85,7 @@ class ActiveDirectoryConnection(object):
         tls_configuration = Tls(ssl.create_default_context(ssl.Purpose.SERVER_AUTH), validate=ssl.CERT_REQUIRED)
 
         if not certificate_data is None:
-            logging.info("Using CA certificate data from Secret Manager")
+            logging.debug("Using CA certificate data from Secret Manager")
             tls_configuration.ca_certs_data = certificate_data
 
         server = ldap3.Server(domain_controller, port=636, connect_timeout=5, use_ssl=True, tls=tls_configuration)
