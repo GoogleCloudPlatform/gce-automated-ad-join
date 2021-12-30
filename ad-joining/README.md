@@ -26,9 +26,12 @@ The `register-computer` app obtains its configuration from the environment and s
 * `AD_DOMAINCONTROLLER` (optional): Name or IP of domain controller to use. If not specified, the app will locate a domain controller via DNS automatically. This variable should only be used for testing.
 * `AD_USERNAME` (required): Username of Active Directory service user. The user must have permission to manage computer objects in the OUs used for automatic domain joining. The value must be provided in `NETBIOS-DOMAIN\SAM-ACCOUNT-NAME` format, UPNs are not supported.
 * `AD_PASSWORD` (optional): Clear-text password of Active Directory service user.  This variable should only be used for testing.
-* `SECRET_PROJECT_ID` (required unless `AD_PASSWORD` is used): Project ID under which the AD credentials have been stored in Secret Manager.
-* `SECRET_NAME` (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
-* `SECRET_VERSION` (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager. Can be set to `latest`.
+* `SM_PROJECT_ADPASSWORD` (or `SECRET_PROJECT_ID` for backward compatibility) (required unless `AD_PASSWORD` is used): Project ID under which the AD credentials have been stored in Secret Manager.
+* `SM_NAME_ADPASSSWORD` (or `SECRET_NAME` for backward compatibility) (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
+* `SM_VERSION_ADPASSWORD` (or `SECRET_VERSION` for backward compatibility) (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager. Can be set to `latest`.
+* `SM_PROJECT_CACERT` (optional if a public Certificate Authority is used): Project ID under which the certificate trust chain for the Certification Authority has been stored in Secret Manager.
+* `SM_NAME_CACERT` (optional see `SM_PROJECT_CACERT`): Name of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager.
+* `SM_VERSION_CACERT` (optional see `SM_PROJECT_CACERT`): Version of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager. Can be set to `latest`.
 * `FUNCTION_IDENTITY`: (required) Email address of the app's service account.
 * `LOGGING_LEVEL` (optional): Logging level for log messages. See [Logging Levels](https://docs.python.org/3/library/logging.html#levels) for acceptable values. The default logging level is set to INFO.
 
