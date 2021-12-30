@@ -23,7 +23,7 @@ import ssl
 import ldap3
 import ldap3.utils.conv
 from ldap3 import Tls
-from ldap3.core.exceptions import LDAPException
+from ldap3.core.exceptions import LDAPException, LDAPStrongerAuthRequiredResult
 import ldap3.core.exceptions
 import logging
 import dns.resolver
@@ -104,10 +104,13 @@ class ActiveDirectoryConnection(object):
         try:
             if connection.bind():
                 return ActiveDirectoryConnection(domain_controller, connection, base_dn)        
-        except LDAPException:
-            logging.warn("Failed to connect to LDAPS endpoint: %s" % e)
-        
-        raise LdapException("Connecting to LDAP(S) endpoints of '%s' as '%s' failed, check credentials" % (domain_controller, user))
+        except LDAPStrongerAuthRequiredResult:
+            logging.exception("LDAP bind requires a secure connection. Make sure the Certification Authority certificate has been configured")
+        except:
+            pass
+
+        # LDAP connection could not be established, raise exception
+        raise LdapException("Connecting to LDAP(S) endpoints of '%s' as '%s' failed" % (domain_controller, user))
 
     def get_domain_controller(self):
         return self.__domain_controller
