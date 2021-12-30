@@ -19,12 +19,13 @@
 # under the License.
 #
 
-import socket
+import ssl
 import ldap3
 import ldap3.utils.conv
+from ldap3 import Tls
+from ldap3.core.exceptions import LDAPException
 import ldap3.core.exceptions
 import logging
-import datetime
 import dns.resolver
 import json
 
@@ -79,23 +80,34 @@ class ActiveDirectoryConnection(object):
         return [str(record.target)[:-1] if str(record.target).endswith(".") else str(record.target) for record in records_sorted]
 
     @staticmethod
-    def connect(domain_controller, base_dn, user, password):
-        logging.info("Connecting to LDAP endpoint of '%s' as '%s'" % (domain_controller, user))
-        connection = ldap3.Connection(
-            server=ldap3.Server(
-                domain_controller,
-                port=389,
-                connect_timeout=5),
-            user=user,
-            password=password,
-            authentication=ldap3.NTLM,
-            raise_exceptions=True)
+    def connect(domain_controller, base_dn, user, password, certificate_data=None):
+        logging.info("Connecting to LDAPS endpoint of '%s' as '%s'" % (domain_controller, user))
+        tls_configuration = Tls(ssl.create_default_context(ssl.Purpose.SERVER_AUTH), validate=ssl.CERT_REQUIRED)
 
-        if not connection.bind():
-            raise LdapException("Connecting to LDAP endpoint of %s as '%s' failed, check credentials" %
-                (domain_controller, user))
+        if not certificate_data is None:
+            logging.info("Using CA certificate data from Secret Manager")
+            tls_configuration.ca_certs_data = certificate_data
 
-        return ActiveDirectoryConnection(domain_controller, connection, base_dn)
+        server = ldap3.Server(domain_controller, port=636, connect_timeout=5, use_ssl=True, tls=tls_configuration)
+        connection = ldap3.Connection(server, user=user, password=password, authentication=ldap3.NTLM, raise_exceptions=True)
+
+        try:
+            if connection.bind():
+                return ActiveDirectoryConnection(domain_controller, connection, base_dn)
+        except LDAPException as e:
+            logging.warn("Failed to connect to LDAPS endpoint: %s" % e)
+            
+        logging.info("Falling back to LDAP endpoint of '%s' as '%s'" % (domain_controller, user))
+        server = ldap3.Server(domain_controller, port=389, connect_timeout=5, use_ssl=False)
+        connection = ldap3.Connection(server, user=user, password=password, authentication=ldap3.NTLM, raise_exceptions=True)
+
+        try:
+            if connection.bind():
+                return ActiveDirectoryConnection(domain_controller, connection, base_dn)        
+        except LDAPException:
+            logging.warn("Failed to connect to LDAPS endpoint: %s" % e)
+        
+        raise LdapException("Connecting to LDAP(S) endpoints of '%s' as '%s' failed, check credentials" % (domain_controller, user))
 
     def get_domain_controller(self):
         return self.__domain_controller
