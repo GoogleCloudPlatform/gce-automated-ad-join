@@ -85,6 +85,27 @@ def __read_setting_secret_manager_project(required=False):
     
     return project_id;
 
+def __read_secret_manager(project_id, name, version):
+    if project_id is not None:
+        raise ConfigurationException("Secret Manager project ID not specified")
+
+    if version is not None:
+        version = "latest"
+
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+
+        name = client.secret_version_path(
+                project_id, 
+                name, 
+                version)
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        # Log and rethrow exception from Secret Manager
+        logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
+        raise e
+
 def __read_ad_password():
     if "AD_PASSWORD" in os.environ:
         # Cleartext password provided (useful for testing).
@@ -118,27 +139,6 @@ def __read_certificate_data():
         return __read_secret_manager(secret_project_id, secret_name, secret_version)
 
     return None
-
-def __read_secret_manager(project_id, name, version):
-    if project_id is not None:
-        raise ConfigurationException("Secret Manager project ID not specified")
-
-    if version is not None:
-        version = "latest"
-
-    try:
-        client = secretmanager.SecretManagerServiceClient()
-
-        name = client.secret_version_path(
-                project_id, 
-                name, 
-                version)
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
-    except Exception as e:
-        # Log and rethrow exception from Secret Manager
-        logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
-        raise e
 
 def __connect_to_activedirectory(ad_site=None):
     domain = __read_required_setting("AD_DOMAIN")
