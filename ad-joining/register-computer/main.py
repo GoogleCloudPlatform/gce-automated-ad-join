@@ -84,7 +84,7 @@ def __read_ad_password():
             return __read_secret_manager(
                 __read_required_setting("SM_PROJECT_ADPASSWORD"), 
                 __read_required_setting("SM_NAME_ADPASSWORD"), 
-                __read_required_setting("SM_VERSION_ADPASSWORD"))
+                __read_setting("SM_VERSION_ADPASSWORD"))
         except ConfigurationException:
             logging.warn("Could not read SM_*_ADPASSWORD settings, falling back to deprecated settings SECRET_PROJECT_ID, SECRET_NAME and SECRET_VERSION")
 
@@ -92,7 +92,7 @@ def __read_ad_password():
         return __read_secret_manager(
             __read_required_setting("SECRET_PROJECT_ID"), 
             __read_required_setting("SECRET_NAME"), 
-            __read_required_setting("SECRET_VERSION"))
+            __read_setting("SECRET_VERSION"))
 
 def __read_certificate_data():
     secret_project_id = __read_setting("SM_PROJECT_CACERT")
@@ -106,7 +106,7 @@ def __read_certificate_data():
     return None
 
 def __read_secret_manager(project_id, name, version):
-    if not version is None:
+    if version is not None:
         version = "latest"
 
     try:
