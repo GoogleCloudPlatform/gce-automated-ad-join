@@ -86,10 +86,10 @@ def __read_setting_secret_manager_project(required=False):
     return project_id;
 
 def __read_secret_manager(project_id, name, version):
-    if project_id is not None:
+    if project_id is None:
         raise ConfigurationException("Secret Manager project ID not specified")
 
-    if version is not None:
+    if version is None:
         version = "latest"
 
     try:
