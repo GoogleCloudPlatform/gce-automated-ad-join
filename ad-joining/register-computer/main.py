@@ -153,7 +153,9 @@ def __connect_to_activedirectory(ad_site=None):
             domain, ad_site)
 
     # Determine if LDAPS should be used for Active Directory connection
+    # Environmental variable stores strings convert to bool
     use_ldaps = __read_setting("USE_LDAPS")
+    use_ldaps = False if use_ldaps is None else use_ldaps.lower() == "true"
 
     certificate_data = None
     if use_ldaps:
