@@ -84,7 +84,7 @@ class ActiveDirectoryConnection(object):
         logging.info("Connecting to LDAPS endpoint of '%s' as '%s'" % (domain_controller, user))
         tls_configuration = Tls(ssl.create_default_context(ssl.Purpose.SERVER_AUTH), validate=ssl.CERT_REQUIRED)
 
-        if not certificate_data is None:
+        if certificate_data is not None:
             logging.debug("Using CA certificate data from Secret Manager")
             tls_configuration.ca_certs_data = certificate_data
 
