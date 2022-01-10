@@ -99,7 +99,7 @@ def __read_certificate_data():
     secret_name = __read_setting("SM_NAME_CACERT")
     secret_version = __read_setting("SM_VERSION_CACERT")
 
-    if not secret_project_id is None and not secret_name is None and not secret_version is None:
+    if not (secret_project_id is None or secret_name is None or secret_version is None):
         logging.info("Reading certificate data from Secret Manager")
         return __read_secret_manager(secret_project_id, secret_name, secret_version)
     
