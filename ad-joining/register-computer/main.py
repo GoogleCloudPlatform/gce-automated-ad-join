@@ -106,6 +106,9 @@ def __read_certificate_data():
     return None
 
 def __read_secret_manager(project_id, name, version):
+    if not version is None:
+        version = "latest"
+
     try:
         client = secretmanager.SecretManagerServiceClient()
 
