@@ -71,6 +71,20 @@ def __read_required_setting(key):
     else:
         return os.environ[key]
 
+def __read_setting_secret_manager_project(required=False):
+    project_id = __read_setting("SM_PROJECT")
+
+    # Backward compatibility with old configuration
+    if not project_id:
+        logging.warn("SM_PROJECT not set failling back to SECRET_PROJECT_ID")
+        project_id = __read_setting("SECRET_PROJECT_ID")
+    
+    if required and project_id is None:
+        logging.fatal("SM_PROJECT configuration seetings needs to be set")
+        raise ConfigurationException("Incomplete configuration, see logs")
+    
+    return project_id;
+
 def __read_ad_password():
     if "AD_PASSWORD" in os.environ:
         # Cleartext password provided (useful for testing).
@@ -82,7 +96,7 @@ def __read_ad_password():
 
         try:
             return __read_secret_manager(
-                __read_required_setting("SM_PROJECT_ADPASSWORD"), 
+                __read_setting_secret_manager_project(True), 
                 __read_required_setting("SM_NAME_ADPASSWORD"), 
                 __read_setting("SM_VERSION_ADPASSWORD"))
         except ConfigurationException:
@@ -90,22 +104,25 @@ def __read_ad_password():
 
         # One or more settings were not found retry with old configuration names
         return __read_secret_manager(
-            __read_required_setting("SECRET_PROJECT_ID"), 
+            __read_setting_secret_manager_project(True), 
             __read_required_setting("SECRET_NAME"), 
             __read_setting("SECRET_VERSION"))
 
 def __read_certificate_data():
-    secret_project_id = __read_setting("SM_PROJECT_CACERT")
+    secret_project_id = __read_setting_secret_manager_project()
     secret_name = __read_setting("SM_NAME_CACERT")
     secret_version = __read_setting("SM_VERSION_CACERT")
 
-    if not (secret_project_id is None or secret_name is None or secret_version is None):
+    if not (secret_project_id is None or secret_name is None):
         logging.info("Reading certificate data from Secret Manager")
         return __read_secret_manager(secret_project_id, secret_name, secret_version)
-    
+
     return None
 
 def __read_secret_manager(project_id, name, version):
+    if project_id is not None:
+        raise ConfigurationException("Secret Manager project ID not specified")
+
     if version is not None:
         version = "latest"
 
