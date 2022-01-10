@@ -90,6 +90,7 @@ def __read_secret_manager(project_id, name, version):
         raise ConfigurationException("Secret Manager project ID not specified")
 
     if version is None:
+        logging.debug("Secret version for '%s' not specified, using 'latest'" % name)
         version = "latest"
 
     try:
