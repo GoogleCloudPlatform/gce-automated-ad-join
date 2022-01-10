@@ -152,8 +152,13 @@ def __connect_to_activedirectory(ad_site=None):
         domain_controllers = ad.domain.ActiveDirectoryConnection.locate_domain_controllers(
             domain, ad_site)
 
-    # Retrieve certificate data from Secret Manager
-    certificate_data = __read_certificate_data()
+    # Determine if LDAPS should be used for Active Directory connection
+    use_ldaps = __read_setting("USE_LDAPS")
+
+    certificate_data = None
+    if use_ldaps:
+        # Retrieve certificate data from Secret Manager
+        certificate_data = __read_certificate_data()
 
     # If we used SRV records to look up domain controllers, then it is possible that
     # the highest-priority one is offline. So loop over the records to fine one
@@ -165,6 +170,7 @@ def __connect_to_activedirectory(ad_site=None):
                     ",".join(["DC=" + dc for dc in domain.split(".")]),
                     __read_required_setting("AD_USERNAME"),
                     __read_ad_password(),
+                    use_ldaps,
                     certificate_data)
         except Exception as e:
             logging.exception("Failed to connect to DC '%s': %s" % (dc, e))
