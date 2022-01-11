@@ -19,16 +19,12 @@
 # under the License.
 #
 
-import base64
-import datetime
 import flask
 import os
 import logging
 import uuid
-import string
 import time
 
-import google.auth
 import googleapiclient.discovery
 from google.cloud import secretmanager
 
@@ -60,6 +56,14 @@ class ConfigurationException(Exception):
 def __get_request_scheme(request):
     return request.headers.get("X-Forwarded-Proto", request.scheme)
 
+def __read_setting(key):
+    if key in os.environ:
+        return os.environ[key]
+    else:
+        logging.debug("Configuration option '%s' is not set" % key)
+
+    return None
+
 def __read_required_setting(key):
     if not key in os.environ:
         logging.fatal("%s not defined in environment" % key)
@@ -67,26 +71,75 @@ def __read_required_setting(key):
     else:
         return os.environ[key]
 
+def __read_setting_secret_manager_project(required=False):
+    project_id = __read_setting("SM_PROJECT")
+
+    # Backward compatibility with old configuration
+    if not project_id:
+        logging.warn("SM_PROJECT not set failling back to SECRET_PROJECT_ID")
+        project_id = __read_setting("SECRET_PROJECT_ID")
+    
+    if required and project_id is None:
+        logging.fatal("SM_PROJECT configuration seetings needs to be set")
+        raise ConfigurationException("Incomplete configuration, see logs")
+    
+    return project_id;
+
+def __read_secret_manager(project_id, name, version):
+    if project_id is None:
+        raise ConfigurationException("Secret Manager project ID not specified")
+
+    if version is None:
+        logging.debug("Secret version for '%s' not specified, using 'latest'" % name)
+        version = "latest"
+
+    try:
+        client = secretmanager.SecretManagerServiceClient()
+
+        name = client.secret_version_path(
+                project_id, 
+                name, 
+                version)
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        # Log and rethrow exception from Secret Manager
+        logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
+        raise e
+
 def __read_ad_password():
     if "AD_PASSWORD" in os.environ:
         # Cleartext password provided (useful for testing).
         return os.environ["AD_PASSWORD"]
     else:
-        client = secretmanager.SecretManagerServiceClient()
-        
-        # If the Service Account does not have permissions
-        # to access the secret an Exception will be raised
-        try:        
-            name = client.secret_version_path(
-                    __read_required_setting("SECRET_PROJECT_ID"), 
-                    __read_required_setting("SECRET_NAME"), 
-                    __read_required_setting("SECRET_VERSION"))
-            response = client.access_secret_version(request={"name": name})
-            return response.payload.data.decode("UTF-8")
-        except Exception as e:
-            # If neither AD_PASSWORD nor Secret Manager hold the password rethrow exception
-            logging.exception("Could not retrieve secret from Secret Manager: %s" % e)
-            raise e
+        # Read password from Secret Manager
+        # Use new settings naming schema first but swallow any configuration exceptions
+        # Try deprecated settings naming schema second but bubble up any exceptions
+
+        try:
+            return __read_secret_manager(
+                __read_setting_secret_manager_project(True), 
+                __read_required_setting("SM_NAME_ADPASSWORD"), 
+                __read_setting("SM_VERSION_ADPASSWORD"))
+        except ConfigurationException:
+            logging.warn("Could not read SM_*_ADPASSWORD settings, falling back to deprecated settings SECRET_PROJECT_ID, SECRET_NAME and SECRET_VERSION")
+
+        # One or more settings were not found retry with old configuration names
+        return __read_secret_manager(
+            __read_setting_secret_manager_project(True), 
+            __read_required_setting("SECRET_NAME"), 
+            __read_setting("SECRET_VERSION"))
+
+def __read_certificate_data():
+    secret_project_id = __read_setting_secret_manager_project()
+    secret_name = __read_setting("SM_NAME_CACERT")
+    secret_version = __read_setting("SM_VERSION_CACERT")
+
+    if not (secret_project_id is None or secret_name is None):
+        logging.info("Reading certificate data from Secret Manager")
+        return __read_secret_manager(secret_project_id, secret_name, secret_version)
+
+    return None
 
 def __connect_to_activedirectory(ad_site=None):
     domain = __read_required_setting("AD_DOMAIN")
@@ -99,6 +152,16 @@ def __connect_to_activedirectory(ad_site=None):
         domain_controllers = ad.domain.ActiveDirectoryConnection.locate_domain_controllers(
             domain, ad_site)
 
+    # Determine if LDAPS should be used for Active Directory connection
+    # Environmental variable stores strings convert to bool
+    use_ldaps = __read_setting("USE_LDAPS")
+    use_ldaps = False if use_ldaps is None else use_ldaps.lower() == "true"
+
+    certificate_data = None
+    if use_ldaps:
+        # Retrieve certificate data from Secret Manager
+        certificate_data = __read_certificate_data()
+
     # If we used SRV records to look up domain controllers, then it is possible that
     # the highest-priority one is offline. So loop over the records to fine one
     # that works.
@@ -108,9 +171,11 @@ def __connect_to_activedirectory(ad_site=None):
                     dc,
                     ",".join(["DC=" + dc for dc in domain.split(".")]),
                     __read_required_setting("AD_USERNAME"),
-                    __read_ad_password())
+                    __read_ad_password(),
+                    use_ldaps,
+                    certificate_data)
         except Exception as e:
-            logging.exception("Failed to connect to DC '%s'" % dc)
+            logging.exception("Failed to connect to DC '%s': %s" % (dc, e))
 
     raise ad.domain.LdapException("No more DCs left to try")
 
