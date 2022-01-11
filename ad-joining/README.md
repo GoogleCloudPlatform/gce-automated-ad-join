@@ -26,14 +26,18 @@ The `register-computer` app obtains its configuration from the environment and s
 * `AD_DOMAINCONTROLLER` (optional): Name or IP of domain controller to use. If not specified, the app will locate a domain controller via DNS automatically. This variable should only be used for testing.
 * `AD_USERNAME` (required): Username of Active Directory service user. The user must have permission to manage computer objects in the OUs used for automatic domain joining. The value must be provided in `NETBIOS-DOMAIN\SAM-ACCOUNT-NAME` format, UPNs are not supported.
 * `AD_PASSWORD` (optional): Clear-text password of Active Directory service user.  This variable should only be used for testing.
-* `USE_LDAPS`: If set to `true` TLS secured LDAP on port 689 will be used when communicating with Active Directory. Defaults to `false`. *Note:* When using LDAPS and a private Certification Authority make sure the public CA certificate is uploaded to Secret Manager and the `SM_NAME_CACERT` and `SM_VERSION_CACERT` options are set accordingly.
 * `SM_PROJECT` (or `SECRET_PROJECT_ID` for backward compatibility): Project ID under which secrets are stored.
 * `SM_NAME_ADPASSWORD` (or `SECRET_NAME` for backward compatibility) (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
 * `SM_VERSION_ADPASSWORD` (or `SECRET_VERSION` for backward compatibility) (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager. Defaults to `latest`.
-* `SM_NAME_CACERT` (optional see `SM_PROJECT_CACERT`): Name of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager.
-* `SM_VERSION_CACERT` (optional see `SM_PROJECT_CACERT`): Version of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager. Defaults to `latest`.
+
 * `FUNCTION_IDENTITY`: (required) Email address of the app's service account.
 * `LOGGING_LEVEL` (optional): Logging level for log messages. See [Logging Levels](https://docs.python.org/3/library/logging.html#levels) for acceptable values. The default logging level is set to INFO.
+
+If you want to use LDAPS to communicate with Active Directory you will need to pass the following environment variables. [Refer to the Managed Microsoft AD documentation for information on how to enable LDAPS](https://cloud.google.com/managed-microsoft-ad/docs/how-to-use-ldaps).
+
+* `USE_LDAPS`: If set to `true` TLS secured LDAP on port 689 will be used when communicating with Active Directory. Defaults to `false`. __Note:__ When using LDAPS and a private Certification Authority make sure the CA public certificate is uploaded to Secret Manager and the `SM_NAME_CACERT` and `SM_VERSION_CACERT` options are set accordingly.
+* `SM_NAME_CACERT` (optional see `SM_PROJECT_CACERT`): Name of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager.
+* `SM_VERSION_CACERT` (optional see `SM_PROJECT_CACERT`): Version of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager. Defaults to `latest`.
 
 If you run the app locally, you will need to pass the following, additional environment variables to simulate a
 Cloud Run environment:
