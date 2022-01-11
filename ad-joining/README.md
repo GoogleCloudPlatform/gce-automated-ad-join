@@ -28,7 +28,7 @@ The `register-computer` app obtains its configuration from the environment and s
 * `AD_PASSWORD` (optional): Clear-text password of Active Directory service user.  This variable should only be used for testing.
 * `USE_LDAPS`: If set to `true` TLS secured LDAP on port 689 will be used when communicating with Active Directory. Defaults to `false`. *Note:* When using LDAPS and a private Certification Authority make sure the public CA certificate is uploaded to Secret Manager and the `SM_NAME_CACERT` and `SM_VERSION_CACERT` options are set accordingly.
 * `SM_PROJECT` (or `SECRET_PROJECT_ID` for backward compatibility): Project ID under which secrets are stored.
-* `SM_NAME_ADPASSSWORD` (or `SECRET_NAME` for backward compatibility) (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
+* `SM_NAME_ADPASSWORD` (or `SECRET_NAME` for backward compatibility) (required unless `AD_PASSWORD` is used): Name of the secret under which the AD credentials have been stored in Secret Manager.
 * `SM_VERSION_ADPASSWORD` (or `SECRET_VERSION` for backward compatibility) (required unless `AD_PASSWORD` is used): Version of the secret under which the AD credentials have been stored in Secret Manager. Defaults to `latest`.
 * `SM_NAME_CACERT` (optional see `SM_PROJECT_CACERT`): Name of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager.
 * `SM_VERSION_CACERT` (optional see `SM_PROJECT_CACERT`): Version of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager. Defaults to `latest`.
