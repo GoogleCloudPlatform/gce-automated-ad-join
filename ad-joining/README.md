@@ -35,7 +35,7 @@ The `register-computer` app obtains its configuration from the environment and s
 
 If you want to use LDAPS to communicate with Active Directory you will need to pass the following environment variables:
 
-* `USE_LDAPS`: If set to `true` TLS secured LDAP on port 689 will be used when communicating with Active Directory. Defaults to `false`. __Note:__ When using LDAPS and a private Certification Authority make sure the CA public certificate is uploaded to Secret Manager and the `SM_NAME_CACERT` and `SM_VERSION_CACERT` options are set accordingly.
+* `USE_LDAPS`: If set to `true` TLS secured LDAP on port 636 will be used when communicating with Active Directory. Defaults to `false`. __Note:__ When using LDAPS and a private Certification Authority make sure the CA public certificate is uploaded to Secret Manager and the `SM_NAME_CACERT` and `SM_VERSION_CACERT` options are set accordingly.
 * `SM_NAME_CACERT` (optional see `SM_PROJECT_CACERT`): Name of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager.
 * `SM_VERSION_CACERT` (optional see `SM_PROJECT_CACERT`): Version of the secret which holds the certificate trust chain for the Certification Authority in Secret Manager. Defaults to `latest`.
 
