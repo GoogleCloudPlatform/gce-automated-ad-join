@@ -751,13 +751,11 @@ def register_computer(request):
         Cloud Functions entry point.
     """
     
-    ad_domain = __read_required_setting("AD_DOMAIN")
-
     if request.path == "/hc" and request.method == "GET":
         # Health Check
         return flask.Response(status=HTTP_OK)
     elif request.path == "/domain" and request.method == "GET":
-        return __serve_domain_name(request, ad_domain)
+        return __serve_domain_name(request, __read_required_setting("AD_DOMAIN"))
     elif request.path == "/cleanup" and request.method == "POST":
         return __cleanup_computers(request)
     elif request.path == "/" and request.method == "GET":
