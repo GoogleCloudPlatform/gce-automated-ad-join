@@ -234,7 +234,13 @@ $IdToken = (Invoke-RestMethod `
 $AdSite = "";
 try
 {
-    $Result = & nltest /dsgetdc:%ad_domain% /DS_6 /TRY_NEXT_CLOSEST_SITE;
+    # Retrieve domain name from adjoin service
+    $Domain = Invoke-RestMethod `
+        -Headers @{"Authorization" = "Bearer $IdToken"} `
+        -Method GET `
+        -Uri "%scheme%://%domain%/domain";
+    
+    $Result = & nltest /dsgetdc:$Domain /DS_6 /TRY_NEXT_CLOSEST_SITE;
     $PatternMatches = ($Result | Select-String -Pattern "^Our Site Name: (.+)$").Matches;
     
     if($Null -ne $PatternMatches)

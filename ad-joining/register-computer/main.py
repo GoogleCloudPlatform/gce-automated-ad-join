@@ -304,6 +304,24 @@ def __get_custom_ou_for_computer(ad_connection, gce_instance, instance_name, pro
     
     return computer_ou
 
+def __authenticate_request(request):
+    # Only accept requests with an Authorization header.
+    headerName = "Authorization"
+    if not headerName in request.headers:
+        logging.exception("Authentication missing")
+        flask.abort(HTTP_AUTHENTICATION_REQUIRED, description="CALLER_AUTHENTICATION_MISSING")
+
+    # Authenticate the request.
+    # Expect the host as audience so that multiple deployments of this
+    # services properly reject tokens issued for other deployments.
+    try:
+        return gcp.auth.AuthenticationInfo.from_authorization_header(
+            request.headers[headerName],
+            "%s://%s/" % (__get_request_scheme(request), request.host))
+    except gcp.auth.AuthorizationException as e:
+        logging.exception("Authentication failed")
+        flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
+
 #------------------------------------------------------------------------------
 # HTTP endpoints.
 #------------------------------------------------------------------------------
@@ -317,7 +335,7 @@ HTTP_CONFLICT = 409
 HTTP_INTERNAL_SERVER_ERROR = 500
 HTTP_BAD_GATEWAY = 502
 
-def __serve_join_script(request, ad_domain):
+def __serve_join_script(request):
     """
     Return the PowerShell script to be run on the joining computer. The script
     does not contain any information about the AD domain or infrastructure so that
@@ -327,31 +345,22 @@ def __serve_join_script(request, ad_domain):
         join_script = file.read()
         join_script = join_script.replace("%domain%", request.host)
         join_script = join_script.replace("%scheme%", __get_request_scheme(request))
-        join_script = join_script.replace("%ad_domain%", ad_domain)
 
         return flask.Response(join_script, mimetype='text/plain')
+
+def __serve_domain_name(request, ad_domain):
+    # Authenticate HTTP request
+    __authenticate_request(request)
+
+    return flask.Response(ad_domain, mimetype='text/plain')
 
 def __register_computer(request):
     """
         Create a computer account for the joining computer.
-    """    
+    """
    
-    # Only accept requests with an Authorization header.
-    headerName = "Authorization"
-    if not headerName in request.headers:
-        logging.exception("Authentication missing")
-        return flask.abort(HTTP_AUTHENTICATION_REQUIRED, description="CALLER_AUTHENTICATION_MISSING")
-
-    # Authenticate the request.
-    # Expect the host as audience so that multiple deployments of this
-    # services properly reject tokens issued for other deployments.
-    try:
-        auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
-            request.headers[headerName],
-            "%s://%s/" % (__get_request_scheme(request), request.host))
-    except gcp.auth.AuthorizationException as e:
-        logging.exception("Authentication failed")
-        return flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
+    # Authenticate HTTP request
+    auth_info = __authenticate_request(request)
 
     # Connect to Active Directory so that we can authorize the request.
     try:
@@ -613,23 +622,8 @@ def __cleanup_computers(request):
         Clean up stale computer accounts.
     """
 
-    # Only accept requests with an Authorization header.
-    headerName = "Authorization"
-    if not headerName in request.headers:
-        logging.exception("Authentication missing")
-        return flask.abort(HTTP_AUTHENTICATION_REQUIRED, description="CALLER_AUTHENTICATION_MISSING")
-
-    # Authenticate the request.
-    # Expect the host as audience so that multiple deployments of this
-    # services properly reject tokens issued for other deployments.
-    try:
-        auth_info = gcp.auth.AuthenticationInfo.from_authorization_header(
-            request.headers[headerName],
-            "%s://%s/" % (__get_request_scheme(request), request.host),
-            False)
-    except gcp.auth.AuthorizationException as e:
-        logging.exception("Authentication failed")
-        return flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
+    # Authenticate HTTP request
+    auth_info = __authenticate_request(request)
 
     # Authorize the request. The request must be using the same service
     # account as the cloud function in order to be considered legitimate.
@@ -756,23 +750,27 @@ def register_computer(request):
     """
         Cloud Functions entry point.
     """
+    
     if request.path == "/hc" and request.method == "GET":
         # Health Check
         return flask.Response(status=HTTP_OK)
+    elif request.path == "/domain" and request.method == "GET":
+        return __serve_domain_name(request, __read_required_setting("AD_DOMAIN"))
     elif request.path == "/cleanup" and request.method == "POST":
         return __cleanup_computers(request)
     elif request.path == "/" and request.method == "GET":
-        return __serve_join_script(request, __read_required_setting("AD_DOMAIN"))
+        return __serve_join_script(request)
     elif request.path == "/" and request.method == "POST":
         return __register_computer(request)
     else:
-        return flask.abort(HTTP_BAD_METHOD)
+        flask.abort(HTTP_BAD_METHOD)
 
 app = Flask(__name__)
 app.debug = False
 
 @app.route("/", methods=['GET', 'POST'])
 @app.route("/cleanup", methods=['GET', 'POST'])
+@app.route("/domain", methods=['GET'])
 @app.route("/hc", methods=['GET'])
 
 def index():
@@ -786,4 +784,3 @@ for code in werkzeug.exceptions.default_exceptions:
 
 if __name__ == "__main__":
     app.run()
-
