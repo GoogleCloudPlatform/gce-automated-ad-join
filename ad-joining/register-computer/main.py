@@ -46,6 +46,9 @@ logging.getLogger().setLevel(logging_level)
 MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 10
 
+PROGRAM_NAME = "ad-joining"
+PROGRAM_VERSION = "2.0.0"
+
 #------------------------------------------------------------------------------
 # Utility functions.
 #------------------------------------------------------------------------------
@@ -750,7 +753,7 @@ def register_computer(request):
     """
         Cloud Functions entry point.
     """
-    
+
     if request.path == "/hc" and request.method == "GET":
         # Health Check
         return flask.Response(status=HTTP_OK)
@@ -761,6 +764,7 @@ def register_computer(request):
     elif request.path == "/" and request.method == "GET":
         return __serve_join_script(request)
     elif request.path == "/" and request.method == "POST":
+        logging.info("Running %s version %s" % (PROGRAM_NAME, PROGRAM_VERSION))
         return __register_computer(request)
     else:
         flask.abort(HTTP_BAD_METHOD)
