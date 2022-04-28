@@ -33,6 +33,8 @@ The `register-computer` app obtains its configuration from the environment and s
 * `FUNCTION_IDENTITY`: (required) Email address of the app's service account.
 * `LOGGING_LEVEL` (optional): Logging level for log messages. See [Logging Levels](https://docs.python.org/3/library/logging.html#levels) for acceptable values. The default logging level is set to INFO.
 
+### LDAP over SSL/TLS
+
 If you want to use LDAPS to communicate with Active Directory you will need to pass the following environment variables:
 
 * `USE_LDAPS`: If set to `true` TLS secured LDAP on port 636 will be used when communicating with Active Directory. Defaults to `false`. __Note:__ When using LDAPS and a private Certification Authority make sure the CA public certificate is uploaded to Secret Manager and the `SM_NAME_CACERT` and `SM_VERSION_CACERT` options are set accordingly.
@@ -45,6 +47,14 @@ If you run the app locally, you will need to pass the following, additional envi
 Cloud Run environment:
 
 * `GOOGLE_APPLICATION_CREDENTIALS` (required for testing): Path to a service account key of a service account that permits the app to interact with Compute Engine. 
+
+### Advanced diagnostics
+
+The server side log will provide details on server operations like creating/modifying computer accounts. In some cases additional diagnostics are required. By enabling advanced diagnostics, a network capture will be taken from the join process on the VM that is joining Active Directory and stored to Google Cloud Storage. The storage bucket needs to be created before enabling advanced diagnostics and the VMs' service account needs to have write access to it. Network captures will be stored in the `captures` subdirectory in [PCAP Next Generation (pcapng) Capture file format](https://www.ietf.org/staging/draft-tuexen-opsawg-pcapng-02.html).
+
+Advanced diagnostics can be enabled by setting the `adjoin-diagnostics-bucket` metadata key either on [project level](https://cloud.google.com/compute/docs/metadata/setting-custom-metadata#set-projectwide) or [VM level](https://cloud.google.com/compute/docs/metadata/setting-custom-metadata#set-custom):
+
+![Metadata set on VM level](metadata.png)
 
 ## Deciding on the OU structure for joined computers
 
