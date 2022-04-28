@@ -50,7 +50,7 @@ Cloud Run environment:
 
 ### Advanced diagnostics
 
-The server side log will provide details on server operations like creating/modiying computer accounts. In some cases additional diagnostics are required. By enabling advanced diagnostics, a network capture will be taken from the join process on the VM that is joining Active Directory and stored to Google Cloud Storage. The storage bucket needs to be created before enabling advanced diagnostics and the VMs' service account needs to have write access to it. Network captures will be stored in the `captures` subdirectory in [PCAP Next Generation (pcapng) Capture file format](https://www.ietf.org/staging/draft-tuexen-opsawg-pcapng-02.html).
+The server side log will provide details on server operations like creating/modifying computer accounts. In some cases additional diagnostics are required. By enabling advanced diagnostics, a network capture will be taken from the join process on the VM that is joining Active Directory and stored to Google Cloud Storage. The storage bucket needs to be created before enabling advanced diagnostics and the VMs' service account needs to have write access to it. Network captures will be stored in the `captures` subdirectory in [PCAP Next Generation (pcapng) Capture file format](https://www.ietf.org/staging/draft-tuexen-opsawg-pcapng-02.html).
 
 Advanced diagnostics can be enabled by setting the `adjoin-diagnostics-bucket` metadata key either on [project level](https://cloud.google.com/compute/docs/metadata/setting-custom-metadata#set-projectwide) or [VM level](https://cloud.google.com/compute/docs/metadata/setting-custom-metadata#set-custom):
 
