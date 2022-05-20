@@ -20,6 +20,7 @@
 #
 
 import ssl
+import time
 import ldap3
 import ldap3.utils.conv
 from ldap3 import Tls
@@ -48,6 +49,8 @@ class ActiveDirectoryConnection(object):
     LDAP_ATTRIBUTE_GROUP_DATA    = "msDS-AzApplicationData"
     ACTIVE_DIRECTORY_GROUP_TYPE_DOMAIN_LOCAL = 4
     ACTIVE_DIRECTORY_GROUP_TYPE_SECURITY = -2147483648
+
+    LDAP_OPERATION_RETRIES = 5
 
     def __init__(self, domain_controller, connection, base_dn):
         assert isinstance(connection, ldap3.Connection)
@@ -95,7 +98,7 @@ class ActiveDirectoryConnection(object):
         else:
             server = ldap3.Server(domain_controller, port=389, connect_timeout=5, use_ssl=False)
 
-        connection = ldap3.Connection(server, user=user, password=password, authentication=ldap3.NTLM, raise_exceptions=True)
+        connection = ldap3.Connection(server, user=user, password=password, authentication=ldap3.NTLM, raise_exceptions=True, receive_timeout=20)
 
         try:
             if connection.bind():
@@ -307,14 +310,23 @@ class ActiveDirectoryConnection(object):
             raise AlreadyExistsException(e)
     
     def add_member_to_group(self, ou, group_name, computer_dn):
-        try:
-            self.__connection.modify(
-                "CN=%s,%s" % (group_name, ou),
-                {
-                    'member': [(ldap3.MODIFY_ADD, [computer_dn])]
-                })
-        except ldap3.core.exceptions.LDAPAttributeOrValueExistsResult as e:
-            raise AlreadyExistsException(e)
+        retries = 0
+
+        while retries < self.LDAP_OPERATION_RETRIES:
+            try:
+                self.__connection.modify(
+                    "CN=%s,%s" % (group_name, ou),
+                    {
+                        'member': [(ldap3.MODIFY_ADD, [computer_dn])]
+                    })
+                break
+            except ldap3.core.exceptions.LDAPBusyResult:
+                logging.warn(f"LDAP endpoint is busy, retrying operation 'add_member_to_group' for '{computer_dn}'")
+                retries += 1
+                time.sleep(1)
+            except ldap3.core.exceptions.LDAPEntryAlreadyExistsResult as e:
+                logging.info(f"'{computer_dn}' already part of '{group_name}'")
+                pass
     
     def delete_group(self, group_dn):
         self.__connection.delete(group_dn)
