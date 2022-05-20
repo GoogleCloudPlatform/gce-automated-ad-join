@@ -24,6 +24,9 @@ ADD /ksetpwd /ksetpwd
 RUN cd /ksetpwd && make ksetpwd
 
 FROM python:3.7-slim
+
+ENV SERVER_WORKERS=3
+
 ADD /register-computer /register-computer
 RUN groupadd -r runner && \
     useradd -rm -g runner runner && \
@@ -40,4 +43,4 @@ RUN chown -R runner /register-computer && \
 USER runner
 WORKDIR /register-computer
 
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 main:app
+CMD exec gunicorn --bind :$PORT --workers $SERVER_WORKERS --timeout 0 main:app
