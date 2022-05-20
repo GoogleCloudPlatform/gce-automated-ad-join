@@ -272,10 +272,20 @@ $JoinInfo = try {
     $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
     $reader.BaseStream.Position = 0
     $reader.DiscardBufferedData()
-    $errorObject = $reader.ReadToEnd() | ConvertFrom-Json
+    $errorData = $reader.ReadToEnd();
 
-    Write-Host $_.Exception.Message 
-    Write-Host "Error is:" $errorObject.error
+    # Load Balancer may return something different than JSON
+    try
+    {
+        $errorObject = $errorData | ConvertFrom-Json;
+        Write-Host $_.Exception.Message 
+        Write-Host "Error is:" $errorObject.error
+    }
+    catch
+    {
+        Write-Error $errorData;
+    }
+
     Write-Host "Failed to register computer account."
 }
 
