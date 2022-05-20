@@ -95,7 +95,7 @@ class ActiveDirectoryConnection(object):
         else:
             server = ldap3.Server(domain_controller, port=389, connect_timeout=5, use_ssl=False)
 
-        connection = ldap3.Connection(server, user=user, password=password, authentication=ldap3.NTLM, raise_exceptions=True)
+        connection = ldap3.Connection(server, user=user, password=password, authentication=ldap3.NTLM, raise_exceptions=True, receive_timeout=20)
 
         try:
             if connection.bind():
