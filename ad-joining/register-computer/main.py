@@ -47,7 +47,7 @@ MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 10
 
 PROGRAM_NAME = "ad-joining"
-PROGRAM_VERSION = "2.0.4"
+PROGRAM_VERSION = "2.0.6"
 
 #------------------------------------------------------------------------------
 # Utility functions.
