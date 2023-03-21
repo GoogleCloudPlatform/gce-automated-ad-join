@@ -307,7 +307,7 @@ def __get_custom_ou_for_computer(ad_connection, gce_instance, instance_name, pro
     
     return computer_ou
 
-def __authenticate_request(request):
+def __authenticate_request(request, require_google_claim=True):
     # Only accept requests with an Authorization header.
     headerName = "Authorization"
     if not headerName in request.headers:
@@ -320,7 +320,8 @@ def __authenticate_request(request):
     try:
         return gcp.auth.AuthenticationInfo.from_authorization_header(
             request.headers[headerName],
-            "%s://%s/" % (__get_request_scheme(request), request.host))
+            "%s://%s/" % (__get_request_scheme(request), request.host),
+            require_google_claim)
     except gcp.auth.AuthorizationException as e:
         logging.exception("Authentication failed")
         flask.abort(HTTP_ACCESS_DENIED, description="CALLER_AUTHENTICATION_FAILED")
@@ -626,7 +627,7 @@ def __cleanup_computers(request):
     """
 
     # Authenticate HTTP request
-    auth_info = __authenticate_request(request)
+    auth_info = __authenticate_request(request, False)
 
     # Authorize the request. The request must be using the same service
     # account as the cloud function in order to be considered legitimate.
