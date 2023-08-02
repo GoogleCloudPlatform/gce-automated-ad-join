@@ -36,7 +36,11 @@ RUN groupadd -r runner && \
     rm -rf /var/lib/apt/lists/* && \
     pip3 install -r /register-computer/requirements.txt --no-cache-dir
 COPY --from=build-cc /ksetpwd/ksetpwd /register-computer/kerberos/bin
-COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.* /register-computer/kerberos/bin/
+COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.a        /register-computer/kerberos/bin/
+COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.so       /register-computer/kerberos/bin/
+COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.so.2     /register-computer/kerberos/bin/
+COPY --from=build-cc /lib/x86_64-linux-gnu/libcom_err.so.2.1   /register-computer/kerberos/bin/
+
 RUN chown -R runner /register-computer && \
     chmod ugo+r -R /register-computer/*
 
