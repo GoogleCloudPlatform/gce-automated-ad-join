@@ -64,6 +64,61 @@ class ActiveDirectoryConnection(object):
         else:
             return str(value)
 
+    def __find(self, converter, serarch_filter, search_base_dn, search_scope, attributes):
+        # Initial paged search will yield search cookie
+        self.__connection.search(
+            search_filter=search_filter,
+            search_base=search_base_dn,
+            search_scope=search_scope,
+            attributes=attributes,
+            paged_size=100)
+
+        # Retrieve page cookie
+        cookie = self.__connection.result['controls']['1.2.840.113556.1.4.319']['value']['cookie']
+
+        results = []
+        for entry in self.__connection.entries:
+            results.append(converter(entry))
+        
+        while cookie:
+            self.__connection.search(
+                search_filter=search_filter,
+                search_base=search_base_dn,
+                search_scope=search_scope,
+                attributes=attributes,
+                paged_size=100,
+                paged_cookie=cookie)
+
+            # Update page cookie
+            cookie = self.__connection.result['controls']['1.2.840.113556.1.4.319']['value']['cookie']
+
+            for entry in self.__connection.entries:
+                results.append(converter(entry))
+
+        return results
+
+    def __to_ou(self, entry):
+        return OrganizationalUnit(
+            entry.entry_dn, 
+            self.__to_scalar(entry["name"])
+        )
+    
+    def __to_computer(self, entry):
+        return Computer(
+            entry.entry_dn,
+            self.__to_scalar(entry["name"]),
+            self.__to_scalar(entry[self.LDAP_ATTRIBUTE_PROJECT_ID]),
+            self.__to_scalar(entry[self.LDAP_ATTRIBUTE_ZONE]),
+            self.__to_scalar(entry[self.LDAP_ATTRIBUTE_INSTANCE_NAME])
+        )
+
+    def __to_group(self, entry):
+        return Group(
+            entry.entry_dn,
+            self.__to_scalar(entry["name"]),
+            self.__to_scalar(entry[self.LDAP_ATTRIBUTE_GROUP_DATA])
+        )
+
     @staticmethod
     def locate_domain_controllers(domain_name, site_name):
         query = "_ldap._tcp"
@@ -116,23 +171,25 @@ class ActiveDirectoryConnection(object):
 
     def find_ou(self, search_base_dn, name=None, includeDescendants=True):
         if name:
-            filter = "(&(objectClass=organizationalUnit)(name=%s))" % ldap3.utils.conv.escape_filter_chars(name)
+            search_filter = f"(&(objectClass=organizationalUnit)(name={ldap3.utils.conv.escape_filter_chars(name)}))"
         else:
-            filter = "(objectClass=organizationalUnit)"
+            search_filter = "(objectClass=organizationalUnit)"
 
         if includeDescendants:
             search_scope = ldap3.SUBTREE
         else:
             search_scope = ldap3.BASE
         try:
-            self.__connection.search(
-                search_filter=filter,
-                search_base=search_base_dn,
-                search_scope=search_scope,
-                attributes=["distinguishedName", "name"])
-
-            return [OrganizationalUnit(entry.entry_dn, self.__to_scalar(entry["name"]))
-                for entry in self.__connection.entries]
+            return self.__find(
+                converter=self.__to_ou, 
+                search_filter=search_filter,
+                search_base_dn=search_base_dn, 
+                search_scope=search_scope, 
+                attributes=[
+                    "distinguishedName", 
+                    "name"
+                ]
+            )
         except ldap3.core.exceptions.LDAPNoSuchObjectResult:
             # In case OU was not found, return an empty array instead of raising an exception
             return []
@@ -145,24 +202,19 @@ class ActiveDirectoryConnection(object):
             search_scope = ldap3.LEVEL
 
         try:
-            self.__connection.search(
+            return self.__find( 
+                converter=self.__to_computer, 
                 search_filter="(objectClass=computer)",
-                search_base=search_base_dn,
-                search_scope=search_scope,
+                search_base_dn=search_base_dn, 
+                search_scope=search_scope, 
                 attributes=[
                     "distinguishedName",
                     "name",
                     ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID,
                     ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE,
-                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME])
-
-            return [Computer(
-                    entry.entry_dn,
-                    self.__to_scalar(entry["name"]),
-                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID]),
-                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE]),
-                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME]))
-                for entry in self.__connection.entries]
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME
+                ]
+            )
         except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
             raise NoSuchObjectException(e)
 
@@ -263,21 +315,17 @@ class ActiveDirectoryConnection(object):
             search_scope = ldap3.LEVEL
 
         try:
-            self.__connection.search(
+            return self.__find( 
+                converter=self.__to_group,
                 search_filter="(&(objectClass=group))",
-                search_base=search_base_dn,
+                search_base_dn=search_base_dn,
                 search_scope=search_scope,
                 attributes=[
                     "distinguishedName",
                     "name",
-                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA,
-                    ])
-
-            return [Group(
-                    entry.entry_dn,
-                    self.__to_scalar(entry["name"]),
-                    self.__to_scalar(entry[ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA]))
-                for entry in self.__connection.entries]
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_GROUP_DATA
+                ]
+            )
         except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
             raise NoSuchObjectException(e)
 
