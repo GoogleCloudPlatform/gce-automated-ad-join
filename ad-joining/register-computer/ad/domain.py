@@ -64,7 +64,7 @@ class ActiveDirectoryConnection(object):
         else:
             return str(value)
 
-    def __find(self, converter, serarch_filter, search_base_dn, search_scope, attributes):
+    def __find(self, converter, search_filter, search_base_dn, search_scope, attributes):
         # Initial paged search will yield search cookie
         self.__connection.search(
             search_filter=search_filter,
@@ -179,6 +179,7 @@ class ActiveDirectoryConnection(object):
             search_scope = ldap3.SUBTREE
         else:
             search_scope = ldap3.BASE
+        
         try:
             return self.__find(
                 converter=self.__to_ou, 
