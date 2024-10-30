@@ -23,7 +23,7 @@ FROM gcc:latest as build-cc
 ADD /ksetpwd /ksetpwd
 RUN cd /ksetpwd && make ksetpwd
 
-FROM python:3.10-slim
+FROM python:3.13-slim
 
 ENV SERVER_WORKERS=3
 
