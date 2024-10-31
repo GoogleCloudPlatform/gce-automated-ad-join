@@ -19,13 +19,23 @@
 # under the License.
 #
 
+import google.auth
+import google_auth_httplib2
 import googleapiclient.discovery
 from googleapiclient.errors import HttpError
+import googleapiclient.http
+
+USER_AGENT = "cloud-solutions/gce-automated-ad-join-v1"
 
 class Project(object):
     def __init__(self, project_id):
+        credentials, _ = google.auth.default()
+        
+        auth_http = google_auth_httplib2.AuthorizedHttp(credentials)
+        googleapiclient .http.set_user_agent(auth_http, USER_AGENT)
+
         self.__project_id = project_id
-        self.__gce_client = googleapiclient.discovery.build('compute', 'v1')
+        self.__gce_client = googleapiclient.discovery.build('compute', 'v1', http=auth_http)
 
     def get_zones(self):
         page_token = None

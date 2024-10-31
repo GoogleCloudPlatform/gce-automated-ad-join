@@ -389,11 +389,11 @@ def __register_computer(request):
     # reduces the risk of us not being able to scavenge later because of lacking
     # permissions.
     try:
-        gce_client = googleapiclient.discovery.build('compute', 'v1')
-        gce_instance = gce_client.instances().get(
-            project=auth_info.get_project_id(),
-            zone=auth_info.get_zone(),
-            instance=auth_info.get_instance_name()).execute()
+        gce_instance = gcp.project.Project(auth_info.get_project_id()).get_instance(
+            auth_info.get_instance_name(), 
+            auth_info.get_zone())
+        if gce_instance is None:
+            raise Exception("Instance does not exist")
 
         # Read the hostname, it might be different from the instance name.
         if "hostname" in gce_instance:
