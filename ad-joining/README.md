@@ -90,9 +90,9 @@ You can run `main.py` locally for testing and debugging purposes:
 
 ### Invoking the app
 
-To invoke the app, you need a valid ID Token. To obtain one, launch VM instance and run the following command:
+To invoke the app, you need a valid ID Token. To obtain one, launch a VM instance and run the following command:
 
-`curl -H "Metadata-Flavor: Google" 'http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://127.0.0.1:5000/&format=full'`
+`curl -H "Metadata-Flavor: Google" "http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=https://127.0.0.1:5000/&format=full"`
 
 Given an ID Token, you can send a request to the app:
 
