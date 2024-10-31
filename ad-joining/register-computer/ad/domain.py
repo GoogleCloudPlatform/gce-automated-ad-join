@@ -109,7 +109,8 @@ class ActiveDirectoryConnection(object):
             self.__to_scalar(entry["name"]),
             self.__to_scalar(entry[self.LDAP_ATTRIBUTE_PROJECT_ID]),
             self.__to_scalar(entry[self.LDAP_ATTRIBUTE_ZONE]),
-            self.__to_scalar(entry[self.LDAP_ATTRIBUTE_INSTANCE_NAME])
+            self.__to_scalar(entry[self.LDAP_ATTRIBUTE_INSTANCE_NAME]),
+            self.__to_scalar(entry["dNSHostName"])
         )
 
     def __to_group(self, entry):
@@ -213,7 +214,8 @@ class ActiveDirectoryConnection(object):
                     "name",
                     ActiveDirectoryConnection.LDAP_ATTRIBUTE_PROJECT_ID,
                     ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE,
-                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME
+                    ActiveDirectoryConnection.LDAP_ATTRIBUTE_INSTANCE_NAME,
+                    "dNSHostName"
                 ]
             )
         except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
@@ -281,7 +283,16 @@ class ActiveDirectoryConnection(object):
             raise AlreadyExistsException(e)
 
     def delete_computer(self, computer_dn):
-        self.__connection.delete(computer_dn)
+        try:
+            self.__connection.delete(computer_dn)
+        except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
+            raise NoSuchObjectException(e)
+
+    def delete_dns_record(self, dns_record_dn):
+        try:
+            self.__connection.delete(dns_record_dn)
+        except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
+            raise NoSuchObjectException(e)
 
     def get_netbios_name(self):
         self.__connection.search(
@@ -398,11 +409,12 @@ class OrganizationalUnit(NamedObject):
     pass
 
 class Computer(NamedObject):
-    def __init__(self, dn, name, project_id, zone, instance_name):
+    def __init__(self, dn, name, project_id, zone, instance_name, dns_hostname):
         super(Computer, self).__init__(dn, name)
         self.__project_id = project_id
         self.__zone = zone
         self.__instance_name = instance_name
+        self.__dns_hostname = dns_hostname
     
     def get_instance_name(self):
         return self.__instance_name
@@ -412,6 +424,21 @@ class Computer(NamedObject):
 
     def get_project_id(self):
         return self.__project_id
+
+    def get_dns_record_dn(self):
+        """ 
+            DN of corresponding DNS record, for example:
+            DC=host,DC=domain.tld,CN=MicrosoftDNS,DC=DomainDnsZones,DC=domain,DC=tld
+        """
+
+        dns_hostname_parts = self.__dns_hostname.lower().split('.')
+        hostname = dns_hostname_parts[0]
+        domain = dns_hostname_parts[1:]
+
+        return "DC=%s,DC=%s,CN=MicrosoftDNS,DC=DomainDnsZones,%s" % (
+            hostname,
+            '.'.join(domain),
+            ','.join( ["DC=" + dc for dc in dns_hostname_parts[1:]]))
 
 class Group(NamedObject):
     def __init__(self, dn, name, group_metadata):

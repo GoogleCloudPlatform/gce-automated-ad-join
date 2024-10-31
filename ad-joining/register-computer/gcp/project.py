@@ -25,7 +25,7 @@ import googleapiclient.discovery
 from googleapiclient.errors import HttpError
 import googleapiclient.http
 
-USER_AGENT = "cloud-solutions/gce-automated-ad-join-v1"
+USER_AGENT = "cloud-solutions/gce-automated-ad-join-v2"
 
 class Project(object):
     def __init__(self, project_id):
