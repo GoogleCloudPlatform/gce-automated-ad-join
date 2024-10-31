@@ -25,11 +25,12 @@ substitutions:
   _AD_DOMAIN: '__AD_DOMAIN__'
   _AD_NETBIOS_DOMAIN: '__AD_NETBIOS_DOMAIN__'
   _SERVICE_ACCOUNT_EMAIL: '__SERVICE_ACCOUNT_EMAIL__'
+  _SERVERLESS_NETWORK: '__SERVERLESS_NETWORK__'
+  _SERVERLESS_SUBNET: '__SERVERLESS_SUBNET__'
 
   _IMAGE_TAG: 'latest'
   _SECRET_NAME: 'ad-password'
   _SECRET_VERSION: 'latest'
-  _SERVERLESS_CONNECTOR: 'serverless-connector'
 
 steps:
 # Build Docker image containing the Cloud Run app
@@ -58,6 +59,9 @@ steps:
   - --region=$_SERVERLESS_REGION
   - --platform=managed
   - --allow-unauthenticated
+  - --network=$_SERVERLESS_NETWORK
+  - --subnet=$_SERVERLESS_SUBNET
+  - --vpc-egress=private-ranges-only
   - --service-account=$_SERVICE_ACCOUNT_EMAIL
   - --set-env-vars=AD_DOMAIN=$_AD_DOMAIN 
   - --set-env-vars=AD_USERNAME=$_AD_NETBIOS_DOMAIN\register-computer 
@@ -66,6 +70,5 @@ steps:
   - --set-env-vars=SECRET_VERSION=$_SECRET_VERSION 
   - --set-env-vars=FUNCTION_IDENTITY=$_SERVICE_ACCOUNT_EMAIL
   - --set-env-vars=^:^PROJECTS_DN=$_PROJECTS_DN
-  - --vpc-connector=projects/$PROJECT_ID/locations/$_SERVERLESS_REGION/connectors/$_SERVERLESS_CONNECTOR
 
 images: ['gcr.io/$PROJECT_ID/register-computer:$_IMAGE_TAG']
