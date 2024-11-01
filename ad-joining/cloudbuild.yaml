@@ -65,9 +65,9 @@ steps:
   - --service-account=$_SERVICE_ACCOUNT_EMAIL
   - --set-env-vars=AD_DOMAIN=$_AD_DOMAIN 
   - --set-env-vars=AD_USERNAME=$_AD_NETBIOS_DOMAIN\register-computer 
-  - --set-env-vars=SECRET_PROJECT_ID=$PROJECT_ID 
-  - --set-env-vars=SECRET_NAME=$_SECRET_NAME 
-  - --set-env-vars=SECRET_VERSION=$_SECRET_VERSION 
+  - --set-env-vars=SM_PROJECT=$PROJECT_ID 
+  - --set-env-vars=SM_NAME_ADPASSWORD=$_SECRET_NAME 
+  - --set-env-vars=SM_VERSION_ADPASSWORD=$_SECRET_VERSION 
   - --set-env-vars=FUNCTION_IDENTITY=$_SERVICE_ACCOUNT_EMAIL
   - --set-env-vars=^:^PROJECTS_DN=$_PROJECTS_DN
 

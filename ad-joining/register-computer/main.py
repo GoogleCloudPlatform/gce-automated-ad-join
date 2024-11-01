@@ -47,7 +47,7 @@ MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 10
 
 PROGRAM_NAME = "ad-joining"
-PROGRAM_VERSION = "2.0.7"
+PROGRAM_VERSION = "2.1.0"
 
 #------------------------------------------------------------------------------
 # Utility functions.
@@ -669,8 +669,12 @@ def __cleanup_computers(request):
                 "computers" : {},
                 "groups" : {}
             }
+
             accounts_deleted = 0
             accounts_failed = 0
+
+            dns_records_deleted = 0
+            dns_records_failed = 0
 
             logging.info("Checking for stale computer accounts in OU '%s'" % ou_name)
             for computer in computer_accounts:
@@ -685,20 +689,37 @@ def __cleanup_computers(request):
                 else:
                     logging.info("Computer account '%s' (instance '%s' in project '%s') is stale" 
                         % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
+
+                    # Delete the computer object
                     try:
                         ad_connection.delete_computer(computer.get_dn())
                         accounts_deleted += 1
 
                     except Exception as e:
-                        logging.error("Failed to delete stale compute account '%s' (instance '%s' in project '%s')" 
-                            % (computer.get_name(), computer.get_instance_name(), computer.get_project_id()))
+                        logging.error("Failed to delete stale computer account '%s' (instance '%s' in project '%s'): %s" 
+                            % (computer.get_name(), computer.get_instance_name(), computer.get_project_id(), str(e)))
                         accounts_failed += 1
+ 
+                    # Delete the DNS record
+                    try:
+                        ad_connection.delete_dns_record(computer.get_dns_record_dn())
+                        dns_records_deleted += 1
+
+                    except ad.domain.NoSuchObjectException as e:
+                        pass
+
+                    except Exception as e:
+                        logging.error("Failed to delete DNS record '%s' for stale computer account '%s' (instance '%s' in project '%s'): %s" 
+                            % (computer.get_dns_record_dn(), computer.get_name(), computer.get_instance_name(), computer.get_project_id(), str(e)))
+                        dns_records_failed += 1
 
             # Gather metrics for response.
             output["computers"] = {
                 "stale_accounts": accounts_deleted + accounts_failed,
                 "accounts_deleted": accounts_deleted,
-                "accounts_failed": accounts_failed
+                "accounts_failed": accounts_failed,
+                "dns_records_deleted": dns_records_deleted,
+                "dns_records_failed" : dns_records_failed
             }
 
             logging.info("Done checking for stale computer accounts in OU "+
@@ -738,7 +759,7 @@ def __cleanup_computers(request):
 
             result[ou_name] = output
             logging.info("Done checking for stale groups in OU "+
-                "'%s' - %d group deleted, %d failed to be deleted" %
+                "'%s' - %d groups deleted, %d failed to be deleted" %
                 (ou_name, accounts_deleted, accounts_failed))
         except Exception as e:
             # We cannot access this project, ignore.
