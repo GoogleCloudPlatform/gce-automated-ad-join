@@ -431,6 +431,10 @@ class Computer(NamedObject):
             DC=host,DC=domain.tld,CN=MicrosoftDNS,DC=DomainDnsZones,DC=domain,DC=tld
         """
 
+        if not self.__dns_hostname:
+            # Some computer objects might not have a DNS hostname
+            return None
+
         dns_hostname_parts = self.__dns_hostname.lower().split('.')
         hostname = dns_hostname_parts[0]
         domain = dns_hostname_parts[1:]
