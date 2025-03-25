@@ -702,8 +702,11 @@ def __cleanup_computers(request):
  
                     # Delete the DNS record
                     try:
-                        ad_connection.delete_dns_record(computer.get_dns_record_dn())
-                        dns_records_deleted += 1
+                        if computer.get_dns_record_dn():
+                            logging.info("Computer account '%s' has a stale DNS record: %s" 
+                                % (computer.get_name(), computer.get_dns_record_dn()))
+                            ad_connection.delete_dns_record(computer.get_dns_record_dn())
+                            dns_records_deleted += 1
 
                     except ad.domain.NoSuchObjectException as e:
                         pass
