@@ -284,7 +284,10 @@ class ActiveDirectoryConnection(object):
 
     def delete_computer(self, computer_dn):
         try:
-            self.__connection.delete(computer_dn)
+            # Computer accounts can have children. Use LDAP_SERVER_TREE_DELETE_OID
+            # to perform a recursive delete operation (with criticality = True).
+            recursive_delete = ('1.2.840.113556.1.4.805', True, None)
+            self.__connection.delete(computer_dn, controls=[recursive_delete])
         except ldap3.core.exceptions.LDAPNoSuchObjectResult as e:
             raise NoSuchObjectException(e)
 
