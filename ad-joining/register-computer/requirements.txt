@@ -23,7 +23,7 @@ flask==3.0.3
 requests==2.32.5
 ldap3==2.9.1
 google-auth==2.45.0
-google-auth-httplib2==0.2.0
+google-auth-httplib2==0.3.0
 google-api-python-client==2.187.0
 google-cloud-secret-manager==2.23.2
 oauth2client==4.1.3
