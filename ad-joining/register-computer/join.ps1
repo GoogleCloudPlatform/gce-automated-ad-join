@@ -209,7 +209,7 @@ function Stop-JoinDiagnostics
             
             $Extension = [System.IO.Path]::GetExtension($DiagnosticsOutputFile);
             $DiagnosticsBucketFile = "gs://$DiagnosticsBucket/captures/$($JoinInfo.ComputerName)-$Timestamp$Extension";
-            & gsutil -q cp $DiagnosticsOutputFile $DiagnosticsBucketFile;
+            & gcloud storage cp $DiagnosticsOutputFile $DiagnosticsBucketFile;
 
             Write-Information -MessageData "AD Join diagnostics: Packet capture copied to $DiagnosticsBucketFile"; 
         }
