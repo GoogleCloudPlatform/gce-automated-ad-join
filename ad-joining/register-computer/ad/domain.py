@@ -25,7 +25,7 @@ import ldap3
 import ldap3.utils.conv
 from ldap3 import Tls
 from ldap3.core.exceptions import LDAPException, LDAPStrongerAuthRequiredResult
-from ldap3.utils.dn import escape_rdn_chars
+from ldap3.utils.dn import escape_rdn
 
 import ldap3.core.exceptions
 import logging
@@ -227,7 +227,7 @@ class ActiveDirectoryConnection(object):
         WORKSTATION_TRUST_ACCOUNT = 0x1000
         PASSWD_NOTREQD = 0x20
 
-        dn = "CN=%s,%s" % (escape_rdn_chars(computer_name), ou)
+        dn = "CN=%s,%s" % (escape_rdn(computer_name), ou)
 
         try:
             self.__connection.add(
@@ -257,7 +257,7 @@ class ActiveDirectoryConnection(object):
     def remove_computer_upn(self, ou, computer_name):
         try:
             self.__connection.modify(
-                "CN=%s,%s" % (escape_rdn_chars(computer_name), ou),
+                "CN=%s,%s" % (escape_rdn(computer_name), ou),
                 {
                     "userPrincipalName": [(ldap3.MODIFY_DELETE, [])]
                 })
@@ -267,7 +267,7 @@ class ActiveDirectoryConnection(object):
     def set_computer_upn(self, ou, computer_name, upn):
         try:
             self.__connection.modify(
-                "CN=%s,%s" % (escape_rdn_chars(computer_name), ou),
+                "CN=%s,%s" % (escape_rdn(computer_name), ou),
                 {
                     "userPrincipalName": [(ldap3.MODIFY_REPLACE, [upn])]
                 })
@@ -277,7 +277,7 @@ class ActiveDirectoryConnection(object):
     def set_computer_zone(self, ou, computer_name, zone):
         try:
             self.__connection.modify(
-                "CN=%s,%s" % (escape_rdn_chars(computer_name), ou),
+                "CN=%s,%s" % (escape_rdn(computer_name), ou),
                 {
                     ActiveDirectoryConnection.LDAP_ATTRIBUTE_ZONE: [(ldap3.MODIFY_REPLACE, [zone])]
                 })
@@ -355,7 +355,7 @@ class ActiveDirectoryConnection(object):
             }
             group_metadata = json.dumps(metadata)
 
-            dn = "CN=%s,%s" % (escape_rdn_chars(group_name), ou)
+            dn = "CN=%s,%s" % (escape_rdn(group_name), ou)
             self.__connection.add(
                 dn,
                 [
@@ -380,7 +380,7 @@ class ActiveDirectoryConnection(object):
         while retries < self.LDAP_OPERATION_RETRIES:
             try:
                 self.__connection.modify(
-                    "CN=%s,%s" % (escape_rdn_chars(group_name), ou),
+                    "CN=%s,%s" % (escape_rdn(group_name), ou),
                     {
                         'member': [(ldap3.MODIFY_ADD, [computer_dn])]
                     })
