@@ -70,7 +70,7 @@ static int reset_password(
     /* [IN] */ krb5_principal target_principal,
     /* [IN] */ char* new_password)
 {
-    krb5_creds agent_creds;
+    krb5_creds agent_creds = {0};
     int result;
 
     char* message = NULL;
@@ -147,9 +147,9 @@ cleanup:
         krb5_free_string(context, message);
     }
 
-	krb5_free_data_contents(context, &server_result_string);
+    krb5_free_data_contents(context, &server_result_string);
     krb5_free_data_contents(context, &server_result_code_string);
-	krb5_free_cred_contents(context, &agent_creds);
+    krb5_free_cred_contents(context, &agent_creds);
 
     return result;
 }
