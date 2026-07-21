@@ -70,8 +70,7 @@ static int reset_password(
     /* [IN] */ krb5_principal target_principal,
     /* [IN] */ char* new_password)
 {
-    krb5_error_code ret;
-    krb5_creds agent_creds;
+    krb5_creds agent_creds = {0};
     int result;
 
     char* message = NULL;
@@ -98,7 +97,7 @@ static int reset_password(
         }
         else
         {
-            com_err(NAME, ret, "Authenticating agent principal failed with code %d", result);
+            com_err(NAME, result, "Authenticating agent principal failed with code %d", result);
         }
 
         result = RESULT_FAIL_AUTH_AGENT;
@@ -116,8 +115,8 @@ static int reset_password(
         &server_result_string);
     if (result != 0)
     {
+        com_err(NAME, result, "Resetting password failed");
         result = RESULT_FAIL_SET_PWD_KERBEROS_ERROR;
-        com_err(NAME, ret, "Resetting password failed");
         goto cleanup;
     }
 
@@ -132,7 +131,7 @@ static int reset_password(
             (int)server_result_code_string.length,
             server_result_code_string.data,
             message ? ": " : "",
-            message ? message : NULL,
+            message ? message : "",
             server_result);
 
         result = RESULT_FAIL_SET_PWD_SERVER_ERROR;
@@ -148,15 +147,9 @@ cleanup:
         krb5_free_string(context, message);
     }
 
-    if (server_result_string.data != NULL)
-    {
-        free(server_result_string.data);
-    }
-
-    if (server_result_code_string.data != NULL)
-    {
-        free(server_result_code_string.data);
-    }
+    krb5_free_data_contents(context, &server_result_string);
+    krb5_free_data_contents(context, &server_result_code_string);
+    krb5_free_cred_contents(context, &agent_creds);
 
     return result;
 }

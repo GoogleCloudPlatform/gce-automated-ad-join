@@ -22,7 +22,8 @@
 import flask
 import os
 import logging
-import uuid
+import secrets
+import string
 import time
 
 import googleapiclient.discovery
@@ -47,7 +48,7 @@ MAX_NETBIOS_COMPUTER_NAME_LENGTH = 15
 PASSWORD_RESET_RETRIES = 10
 
 PROGRAM_NAME = "ad-joining"
-PROGRAM_VERSION = "2.1.2"
+PROGRAM_VERSION = "2.1.3"
 
 #------------------------------------------------------------------------------
 # Utility functions.
@@ -183,7 +184,10 @@ def __connect_to_activedirectory(ad_site=None):
     raise ad.domain.LdapException("No more DCs left to try")
 
 def __generate_password(length=40):
-    return str(uuid.uuid4()) + "-" + str(uuid.uuid4())
+    # Combine lowercase, uppercase, digits, and basic punctuation
+    alphabet = string.ascii_letters + string.digits + "!@#$%^*()-_=+"
+    password = "".join(secrets.choice(alphabet) for _ in range(length))
+    return password
 
 def __get_managed_instance_group_for_instance(gce_instance):    
     if ("metadata" in gce_instance.keys() and "items" in gce_instance["metadata"]):
